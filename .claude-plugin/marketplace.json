@@ -1,0 +1,13 @@
+{
+  "name": "claude-game",
+  "owner": {
+    "name": "Metalismaticus"
+  },
+  "plugins": [
+    {
+      "name": "studio",
+      "source": "./plugins/studio",
+      "description": "Проектный процесс для двух чатов: /setup, /idea, /bug, /order, /need, /start, /done, /add, /check, /retro, /board и субагенты executor, reviewer, designer, assets."
+    }
+  ]
+}
