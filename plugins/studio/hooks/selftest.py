@@ -217,7 +217,11 @@ def main():
              "git fetch && git merge --no-edit origin/main"),
             ("git bisect reset", "git bisect reset"),
             ("git revert --no-edit", "git revert --no-edit abc1234"),
-            ("git log --grep", 'git log --grep "Пункт"'),
+            ("git log --grep обеими пометками", 'git log abc1234..HEAD -E --grep "^(Пункт|Item) 2:"'),
+            ("revert найденного поиском",
+             'git revert --no-edit $(git log abc1234..HEAD -E --grep "^(Пункт|Item) 2:" --format=%H)'),
+            ("коммит с телом по-английски",
+             'git commit -m "Item 3: Let players dig through stone" -m "Checks: full 66/0, quick 1/0."'),
             ("git worktree remove --force", f'git worktree remove --force "{copy}"'),
             ("не проект studio", "git add -A"),
             ("не Bash", "git add -A"),
@@ -231,7 +235,7 @@ def main():
         results.append(("guard_git", "битое событие", "пропуск", f"код {code}", code == 0))
 
         def context(name, cwd, expect, utf8=True, payload=None,
-                    needles=("в работе: 2 (круг 2/3)", "готовы: 1")):
+                    needles=("в работе: 2 (круг 2/3)", "готовы: 1", "^(Пункт|Item)")):
             code, out, _ = run(CONTEXT, payload or {"hook_event_name": "SessionStart",
                                                    "source": "compact", "cwd": cwd}, utf8)
             if expect:
