@@ -7,7 +7,7 @@
     {
       "name": "studio",
       "source": "./plugins/studio",
-      "description": "Проектный процесс для двух чатов, вопросы владельцу — окнами: /setup, /idea, /fault, /order (/art, /music, /mockup), /need, /start (параллельные волны, одна тяжёлая проверка в конце), /done, /add, /check, /parallel, /retro, /board и субагенты executor, reviewer, designer, scout, assets."
+      "description": "Проектный процесс для двух чатов, вопросы владельцу — окнами: /setup (проверка компьютера, разбор образцов, первое окно игры), /idea, /fault, /order (/art, /music, /mockup; 3D-модели, текстуры, кадр-цель), /need, /start (параллельные волны, одна тяжёлая проверка в конце; пункты [вид] — варианты и выбор владельца по листу сравнения), /done, /add, /check, /parallel, /retro, /board и субагенты executor, reviewer, designer, scout, assets, reference."
     }
   ]
 }

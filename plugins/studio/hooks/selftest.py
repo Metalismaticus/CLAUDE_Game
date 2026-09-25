@@ -38,6 +38,7 @@ TEMPLATE = """# Текущая партия
 -->
 """
 DONE = BATCH.replace("в работе · круг 2/3", "готов к проверке").replace("ждёт очереди", "ждёт: какой цвет")
+CHOICE = DONE.replace("ждёт: какой цвет", "ждёт выбора · выбор 1/3")
 
 
 def write(path, text):
@@ -89,6 +90,7 @@ def main():
         write(os.path.join(copy, "docs", "BATCH.md"), BATCH)
         write(os.path.join(idle, "docs", "BATCH.md"), TEMPLATE)
         write(os.path.join(tmp, "готово", "docs", "BATCH.md"), DONE)
+        write(os.path.join(tmp, "выбор", "docs", "BATCH.md"), CHOICE)
         os.makedirs(os.path.join(project, "src", "мир"))
         os.makedirs(plain)
         results = []
@@ -168,7 +170,8 @@ def main():
         code, _, _ = run(GUARD, b"{not json")
         results.append(("guard_git", "битое событие", "пропуск", f"код {code}", code == 0))
 
-        def context(name, cwd, expect, utf8=True, payload=None):
+        def context(name, cwd, expect, utf8=True, payload=None,
+                    needles=("в работе: 2 (круг 2/3)", "готовы: 1")):
             code, out, _ = run(CONTEXT, payload or {"hook_event_name": "SessionStart",
                                                    "source": "compact", "cwd": cwd}, utf8)
             if expect:
@@ -176,8 +179,8 @@ def main():
                     data = json.loads(out)["hookSpecificOutput"]
                     text = data["additionalContext"]
                     ok = (code == 0 and data["hookEventName"] == "SessionStart"
-                          and "идёт партия — 3 пункта" in text and "в работе: 2 (круг 2/3)" in text
-                          and "готовы: 1" in text and len(text.splitlines()) <= 6)
+                          and "идёт партия — 3 пункта" in text and all(n in text for n in needles)
+                          and len(text.splitlines()) <= 6)
                     got = "напоминание"
                 except (ValueError, KeyError, TypeError):
                     ok, got = False, (out.strip()[:40] or "пусто")
@@ -191,6 +194,8 @@ def main():
         context("подпапка проекта", os.path.join(project, "src", "мир"), True)
         context("шаблон «Пусто.» с образцом", idle, False)
         context("всё готово к проверке", os.path.join(tmp, "готово"), False)
+        context("остался выбор по листу", os.path.join(tmp, "выбор"), True,
+                needles=("ждут выбора: 3", "готовы: 1, 2"))
         context("не проект studio", plain, False)
         context("битое событие", plain, False, payload=b"{not json")
 

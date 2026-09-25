@@ -3,8 +3,9 @@
 
 После обрыва (лимит, закрытый чат, сжатие контекста) чат разработки мог
 продолжить по памяти, а не по docs/BATCH.md. Если в таблице партии есть пункт
-«в работе» или «ждёт очереди», хук отдаёт короткий additionalContext (не больше
-6 строк): сколько пунктов, какие в работе и готовы, как продолжить. Новый чат
+«в работе», «ждёт очереди» или «ждёт выбора», хук отдаёт короткий
+additionalContext (не больше 6 строк): сколько пунктов, какие в работе и
+готовы, как продолжить. Новый чат
 без истории партию сам не продолжает. Нет партии — ничего не выводит. Любая
 ошибка — код 0 и тишина.
 """
@@ -56,7 +57,7 @@ def plural(n):
 
 
 def context(rows):
-    working, ready, queued = [], [], []
+    working, ready, queued, choice = [], [], [], []
     for number, state in rows:
         s = state.lower().replace("ё", "е")
         if s.startswith("в работе"):
@@ -66,18 +67,22 @@ def context(rows):
             queued.append(number)
         elif s.startswith("готов к проверке"):
             ready.append(number)
-    if not working and not queued:
+        elif s.startswith("ждет выбора"):
+            choice.append(number)
+    if not working and not queued and not choice:
         return None
     parts = [f"в работе: {', '.join(working) or 'нет'}", f"готовы: {', '.join(ready) or 'нет'}"]
     if queued:
         parts.append(f"ждут очереди: {', '.join(queued)}")
+    if choice:
+        parts.append(f"ждут выбора: {', '.join(choice)} — /start покажет лист")
     return "\n".join([
         f"studio: идёт партия — {len(rows)} {plural(len(rows))} ({', '.join(parts)}).",
         "Чат разработки (где звали /start) продолжает по `docs/BATCH.md` и "
         "`git log --grep \"Пункт\"`, а не по памяти:",
         "вызвать /studio:start без аргумента — он сверит партию с git.",
         "Новый чат без истории партию сам не продолжает — ждёт слова владельца.",
-        "Чат замысла партию не трогает и меняет только `.md`.",
+        "Чат замысла партию не трогает и меняет только `.md` и картинки `docs/refs/`.",
     ])
 
 
