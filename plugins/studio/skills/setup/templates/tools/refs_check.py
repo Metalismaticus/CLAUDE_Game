@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Проверить образцы вида: картинки из паспортов на месте, черновики не держат пункты [вид].
+"""Проверить образцы: файлы из паспортов на месте, черновики не держат пункты [вид] и [ощущение].
 
 Развёрнут плагином studio (/setup). Только стандартная библиотека. Зовут /need,
-/board, /start (перед пунктом [вид]) и /setup (после разбора образцов).
+/board, /start (перед пунктом [вид] или [ощущение]) и /setup (после разбора
+образцов).
 
     python tools/refs_check.py [--topic <тема>] [--root <папка проекта>]
 
 Ищет в docs/refs/*.md (паспорта тем и INDEX.md; файлы «_…» — шаблоны, их
-нет) пути к картинкам, которых нет на диске, — в ссылках, в `…` и в ячейках
-таблиц; имя без папки ищется и в docs/refs/<тема>/. Ещё ищет паспорта в
-состоянии «черновик», о теме которых в «Очереди» docs/ROADMAP.md есть пункт
-[вид] (тема узнаётся по пути docs/refs/<тема>.md в пункте или его подробностях,
-иначе по названию темы). `--topic` — только эта тема, и её черновик считается
-недостачей сам по себе.
+нет) пути к картинкам и звукам, которых нет на диске, — в ссылках, в `…` и в
+ячейках таблиц; имя без папки ищется и в docs/refs/<тема>/. Ещё ищет паспорта
+в состоянии «черновик», о теме которых в «Очереди» docs/ROADMAP.md есть пункт
+[вид] или [ощущение] (тема узнаётся по пути docs/refs/<тема>.md в пункте или
+его подробностях, иначе по названию темы). `--topic` — только эта тема, и её
+черновик считается недостачей сам по себе.
 
-Заметки (на код не влияют): картинки в docs/refs/<тема>/, не записанные в
-паспорт; пункты [вид], тема которых не узнана; пропавшие листы sheet-… и
-принятые кадры accepted-… — это история, работе они не нужны.
+Заметки (на код не влияют): файлы в docs/refs/<тема>/, не записанные в
+паспорт; пункты [вид] и [ощущение], тема которых не узнана; пропавшие листы
+sheet-…, принятые кадры accepted-… и звуки вариантов variant-… — это история,
+работе они не нужны.
 
 Коды возврата: 0 — всё на месте; 1 — чего-то нет; 2 — неверный вызов.
 """
@@ -26,11 +28,13 @@ import re
 import sys
 from urllib.parse import unquote
 
-IMAGE = r"(?:png|jpe?g|webp|gif|bmp|tga)"
+MEDIA = r"(?:png|jpe?g|webp|gif|bmp|tga|wav|ogg|mp3|flac)"  # картинки и звуки образцов
+ROUTES = ("[вид]", "[ощущение]")
+HISTORY = ("sheet-", "accepted-", "variant-")
 LINK = re.compile(r"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)\s]+))[^)]*\)")
-TICKED = re.compile(r"`([^`\n]+\." + IMAGE + r")`", re.IGNORECASE)
-BARE = re.compile(r"(?<![\w./\\-])([\w./\\-]*[-/\\][\w./\\-]*\." + IMAGE + r")(?![\w-])", re.IGNORECASE)
-CELL = re.compile(r"`?([^`|<>]+\." + IMAGE + r")`?", re.IGNORECASE)
+TICKED = re.compile(r"`([^`\n]+\." + MEDIA + r")`", re.IGNORECASE)
+BARE = re.compile(r"(?<![\w./\\-])([\w./\\-]*[-/\\][\w./\\-]*\." + MEDIA + r")(?![\w-])", re.IGNORECASE)
+CELL = re.compile(r"`?([^`|<>]+\." + MEDIA + r")`?", re.IGNORECASE)
 URL = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s|)>\]`]+", re.IGNORECASE)
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 STATE = re.compile(r"^[\s>*_-]*Состояние\s*[:：][\s*_]*(.+)$", re.MULTILINE)
@@ -48,13 +52,13 @@ def read(path):
         return handle.read()
 
 
-def image_refs(text):
-    """Строки-пути к картинкам в тексте паспорта, без адресов в сети и заготовок."""
+def media_refs(text):
+    """Строки-пути к картинкам и звукам в тексте паспорта, без адресов в сети и заготовок."""
     text = COMMENT.sub(" ", text)
     found = []
     for match in LINK.finditer(text):
         target = unquote((match.group(1) or match.group(2) or "").strip())
-        if re.search(r"\." + IMAGE + r"$", target, re.IGNORECASE):
+        if re.search(r"\." + MEDIA + r"$", target, re.IGNORECASE):
             found.append(target)
     found += [m.group(1).strip() for m in TICKED.finditer(text)]
     rest = []
@@ -127,7 +131,7 @@ def mentions(text, passport):
 
 
 def queue_items(root):
-    """Пункты [вид] из «Очереди» ROADMAP.md вместе с их подробностями."""
+    """Пункты [вид] и [ощущение] из «Очереди» ROADMAP.md вместе с их подробностями."""
     path = os.path.join(root, "docs", "ROADMAP.md")
     if not os.path.isfile(path):
         return []
@@ -135,7 +139,7 @@ def queue_items(root):
     details = {}
     for block in re.split(r"(?m)^(?=#{2,4} )", text):
         head = block.split("\n", 1)[0]
-        if head.startswith("####") and "[вид]" in head:
+        if head.startswith("####") and any(route in head for route in ROUTES):
             title = re.sub(r"\[[^\]]*\]", "", head.lstrip("#")).strip(" .").lower()
             if title:
                 details[title] = block
@@ -152,14 +156,15 @@ def queue_items(root):
     result = []
     for lines in items:
         item = " ".join(lines)
-        if "[вид]" not in item:
+        route = next((r for r in ROUTES if r in item), None)
+        if not route:
             continue
         low = item.lower()
         extra = [block for title, block in details.items() if title in low]
         name = re.search(r"\*\*(.+?)\*\*", item)
         name = re.sub(r"\[[^\]]*\]\s*", "", name.group(1) if name else item).strip(" .")
-        marks = " ".join(m for m in re.findall(r"\[[^\]]+\](?!\()", item) if m != "[вид]")
-        result.append({"name": name[:70], "marks": marks, "text": "\n".join([item] + extra)})
+        marks = " ".join(m for m in re.findall(r"\[[^\]]+\](?!\()", item) if m not in ROUTES)
+        result.append({"name": name[:70], "route": route, "marks": marks, "text": "\n".join([item] + extra)})
     return result
 
 
@@ -213,12 +218,12 @@ def main():
     missing, lost, referenced = [], [], set()
     count = 0
     for passport in passports:
-        for ref in image_refs(passport["text"]):
+        for ref in media_refs(passport["text"]):
             full, ok = resolve(root, passport["path"], ref)
             count += 1
             if ok:
                 referenced.add(full)
-            elif os.path.basename(full).lower().startswith(("sheet-", "accepted-")):
+            elif os.path.basename(full).lower().startswith(HISTORY):
                 lost.append(f"нет на диске (история, работе не мешает): {rel(root, full)}")
             else:
                 missing.append((rel(root, passport["path"]), rel(root, full)))
@@ -247,17 +252,17 @@ def main():
             continue
         for name in sorted(os.listdir(folder)):
             full = os.path.abspath(os.path.join(folder, name))
-            if (re.search(r"\." + IMAGE + r"$", name, re.IGNORECASE)
-                    and not name.lower().startswith(("sheet-", "accepted-"))
+            if (re.search(r"\." + MEDIA + r"$", name, re.IGNORECASE)
+                    and not name.lower().startswith(HISTORY)
                     and os.path.normcase(full) not in referenced):
                 notes.append(f"лежит, но не записано в паспорт: {rel(root, full)}")
     if not args.topic:
         for item in items:
             if id(item) not in linked:
-                notes.append(f"пункт [вид] «{item['name']}» — тема не узнана: впишите в пункт путь docs/refs/<тема>.md")
+                notes.append(f"пункт {item['route']} «{item['name']}» — тема не узнана: впишите в пункт путь docs/refs/<тема>.md")
 
     real = [p for p in passports if not p["index"]]
-    print(f"Образцы: паспортов {len(real)}, картинок в записях {count}"
+    print(f"Образцы: паспортов {len(real)}, файлов в записях {count}"
           + (f", тема «{real[0]['title']}» — {real[0]['state']}" if args.topic and real else "") + ".")
     if not files and not args.topic:
         print("Папки docs/refs/ с паспортами нет — образцов ещё не разбирали.")
@@ -274,7 +279,7 @@ def main():
         for line in notes:
             print(f"  {line}")
     if missing or drafts:
-        parts = [f"{word} {n}" for word, n in (("картинок", len(missing)), ("подтверждений", len(drafts))) if n]
+        parts = [f"{word} {n}" for word, n in (("файлов", len(missing)), ("подтверждений", len(drafts))) if n]
         print(f"Итог: не хватает {len(missing) + len(drafts)} — {', '.join(parts)}.")
         return 1
     print("Итог: всё на месте.")
