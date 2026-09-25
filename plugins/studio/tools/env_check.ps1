@@ -3,8 +3,11 @@ studio: проверка компьютера для /setup. Только чте
 
     powershell -NoProfile -ExecutionPolicy Bypass -File <плагин>\tools\env_check.ps1 [-ProjectDir <папка проекта>]
 
-Печатает на stdout JSON в UTF-8: система (ОС, процессор, видеокарты, память,
-основной монитор), свободное место на диске проекта; программы — git
+Печатает на stdout JSON в UTF-8: система (ОС, процессор, видеокарты с
+видеопамятью, память, основной монитор — частота сейчас и наибольшая при этом
+разрешении, питание — сеть или батарея, план и режим питания), свободное место
+на диске проекта; это и отпечаток машины для «Бюджета производительности»
+docs/TESTING.md. Программы — git
 (core.autocrlf, git-lfs), python (+ Pillow), dotnet, ffmpeg, Blender, gh,
 winget; движки — Godot (PATH, WinGet, Program Files, steamapps\common, Рабочий
 стол, Загрузки, Документы до глубины 3; и _console.exe, и оконный; версия через
@@ -172,7 +175,7 @@ $godot = [ordered]@{
 }
 $unity = [ordered]@{ hub = $NF; editors = $NF; winget_id = 'Unity.UnityHub' }
 $unreal = [ordered]@{ installs = $NF; launcher = $NF; winget_id = 'EpicGames.EpicGamesLauncher' }
-$system = [ordered]@{ os = $NF; os_version = $NF; cpu = $NF; cores = $NF; threads = $NF; ram_gb = $NF; gpu = $NF; monitor = $NF }
+$system = [ordered]@{ os = $NF; os_version = $NF; cpu = $NF; cores = $NF; threads = $NF; ram_gb = $NF; gpu = $NF; monitor = $NF; power = $NF }
 $project = [ordered]@{
     path      = $ProjectDir
     non_ascii = [bool]($ProjectDir -match '[^\u0000-\u007F]')
@@ -217,12 +220,22 @@ Step 'gpu' {
         } catch { }
     }
     $list = foreach ($g in @(Get-CimInstance Win32_VideoController)) {
-        $bytes = if ($vram.ContainsKey($g.Name)) { $vram[$g.Name] } elseif ($g.AdapterRAM -gt 0) { [double]$g.AdapterRAM } else { $null }
-        [ordered]@{
-            name   = $g.Name
-            driver = (OrNF $g.DriverVersion)
-            vram_gb = $(if ($bytes) { [math]::Round($bytes / 1GB, 1) } else { $NF })
+        $from = $NF
+        $bytes = if ($vram.ContainsKey($g.Name)) { $from = 'registry'; $vram[$g.Name] } elseif ($g.AdapterRAM -gt 0) { $from = 'WMI AdapterRAM, at most 4 GB'; [double]$g.AdapterRAM } else { $null }
+        $item = [ordered]@{
+            name      = $g.Name
+            driver    = (OrNF $g.DriverVersion)
+            vram_gb   = $(if ($bytes) { [math]::Round($bytes / 1GB, 1) } else { $NF })
+            vram_mb   = $(if ($bytes) { [int][math]::Round($bytes / 1MB) } else { $NF })
+            vram_from = $from
         }
+        # У NVIDIA номер драйвера — последние пять цифр версии Windows: 32.0.15.9597 -> 595.97.
+        $digits = "$($g.DriverVersion)" -replace '\D', ''
+        if ($g.Name -match '(?i)nvidia' -and $digits.Length -ge 5) {
+            $tail = $digits.Substring($digits.Length - 5)
+            $item.driver_nvidia = '{0}.{1}' -f $tail.Substring(0, 3), $tail.Substring(3)
+        }
+        $item
     }
     $system.gpu = ListOrNF $list
 }
@@ -254,18 +267,57 @@ public static class StudioDisplay {
         if (!EnumDisplaySettings(null, -1, ref d)) return null;
         return new int[] { d.dmPelsWidth, d.dmPelsHeight, d.dmDisplayFrequency };
     }
+    public static int MaxHz(int width, int height) {
+        int best = 0;
+        DEVMODE d = new DEVMODE();
+        d.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+        for (int i = 0; i < 4096 && EnumDisplaySettings(null, i, ref d); i++) {
+            if (d.dmPelsWidth == width && d.dmPelsHeight == height && d.dmDisplayFrequency > best) best = d.dmDisplayFrequency;
+        }
+        return best;
+    }
 }
 '@
         }
         $mode = [StudioDisplay]::Primary()
     } catch { }
     if ($mode -and $mode[2] -gt 1) {
-        $system.monitor = [ordered]@{ width = $mode[0]; height = $mode[1]; refresh_hz = $mode[2]; how = 'EnumDisplaySettings' }
+        $system.monitor = [ordered]@{ width = $mode[0]; height = $mode[1]; refresh_hz = $mode[2]; max_hz = $NF; how = 'EnumDisplaySettings' }
+        try { $max = [StudioDisplay]::MaxHz($mode[0], $mode[1]); if ($max -gt 1) { $system.monitor.max_hz = $max } } catch { }
         return
     }
     $g = @(Get-CimInstance Win32_VideoController | Where-Object { $_.CurrentRefreshRate -gt 1 })[0]
     if ($g) {
         $system.monitor = [ordered]@{ width = $g.CurrentHorizontalResolution; height = $g.CurrentVerticalResolution; refresh_hz = $g.CurrentRefreshRate; how = 'Win32_VideoController' }
+    }
+}
+# Питание: сеть или батарея, план (имя — английское из реестра) и режим Windows 11 для текущего источника.
+Step 'power' {
+    $power = [ordered]@{ source = $NF; battery = $NF; plan = $NF; plan_guid = $NF; mode = $NF }
+    $system.power = $power
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $s = [System.Windows.Forms.SystemInformation]::PowerStatus
+        $power.source = switch ("$($s.PowerLineStatus)") { 'Online' { 'AC' } 'Offline' { 'battery' } default { $NF } }
+        $power.battery = if ("$($s.BatteryChargeStatus)" -match 'NoSystemBattery') { 'none' } else { '{0}%' -f [int]($s.BatteryLifePercent * 100) }
+    } catch {
+        if (@(Get-CimInstance Win32_Battery).Count -eq 0) { $power.source = 'AC'; $power.battery = 'none' }
+    }
+    $schemes = 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes'
+    $p = Get-ItemProperty $schemes -ErrorAction Stop
+    if ($p.ActivePowerScheme) {
+        $power.plan_guid = $p.ActivePowerScheme
+        $name = $null
+        try { $name = (Get-ItemProperty (Join-Path $schemes $p.ActivePowerScheme) -ErrorAction Stop).FriendlyName } catch { }
+        if ($name) { $power.plan = ($name -split ',')[-1].Trim() }
+    }
+    $overlay = if ($power.source -eq 'battery') { $p.ActiveOverlayDcPowerScheme } else { $p.ActiveOverlayAcPowerScheme }
+    $power.mode = switch ("$overlay".ToLowerInvariant()) {
+        'ded574b5-45a0-4f42-8737-46345c09c238' { 'best performance' }
+        '3af9b8d9-7c97-431d-ad78-34a8bfea439f' { 'better performance' }
+        '961cc777-2547-4f9d-8174-7d86181b8a7a' { 'best power efficiency' }
+        { $_ -eq '' -or $_ -eq '00000000-0000-0000-0000-000000000000' } { 'balanced' }
+        default { "$overlay" }
     }
 }
 Step 'disk' {
