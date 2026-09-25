@@ -6,7 +6,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_git_add.py\"",
+            "command": "python -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_git.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_context.py\"",
             "timeout": 10
           }
         ]

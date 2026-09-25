@@ -2,6 +2,7 @@
 name: music
 description: Нужен музыкальный трек — короткая форма /order music. Собрать промт и строку тегов по docs/orders/music.md, записать в docs/prompts и долгом в BLOCKED. Команда чата замысла.
 argument-hint: "<трек: где звучит и какое настроение>"
+disable-model-invocation: true
 ---
 
 Нужен трек: **$ARGUMENTS**

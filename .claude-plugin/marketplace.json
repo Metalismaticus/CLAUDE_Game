@@ -7,7 +7,7 @@
     {
       "name": "studio",
       "source": "./plugins/studio",
-      "description": "Проектный процесс для двух чатов: /setup, /idea, /bug, /order, /need, /start (с параллельными волнами), /done, /add, /check, /parallel, /retro, /board и субагенты executor, reviewer, designer, scout, assets."
+      "description": "Проектный процесс для двух чатов, вопросы владельцу — окнами: /setup, /idea, /fault, /order (/art, /music, /mockup), /need, /start (параллельные волны, одна тяжёлая проверка в конце), /done, /add, /check, /parallel, /retro, /board и субагенты executor, reviewer, designer, scout, assets."
     }
   ]
 }

@@ -1,7 +1,8 @@
 ---
-name: design
+name: mockup
 description: Нужен макет экрана — короткая форма /order design. Собрать бриф по docs/orders/design.md и docs/DESIGN.md, выгрузить дизайн-систему проекта в Claude Design, записать долг. Команда чата замысла.
 argument-hint: "<экран>"
+disable-model-invocation: true
 ---
 
 Нужен макет экрана: **$ARGUMENTS**
