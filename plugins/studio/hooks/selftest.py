@@ -259,6 +259,27 @@ def main():
         context("не проект studio", plain, False)
         context("битое событие", plain, False, payload=b"{not json")
 
+        def version(name, label, expect):
+            folder = os.path.join(tmp, "шаблон " + name)
+            write(os.path.join(folder, "docs", "BATCH.md"), TEMPLATE)
+            if label:
+                write(os.path.join(folder, "CLAUDE.md"), f"<!-- Процесс: плагин studio, {label}. -->\n")
+            code, out, _ = run(CONTEXT, {"hook_event_name": "SessionStart",
+                                         "source": "startup", "cwd": folder})
+            try:
+                said = "/setup обновить" in json.loads(out)["hookSpecificOutput"]["additionalContext"]
+            except (ValueError, KeyError, TypeError):
+                said = False
+            ok = code == 0 and said == expect
+            results.append(("session_context", f"шаблон проекта: {name}",
+                            "напоминание" if expect else "тишина",
+                            "напоминание" if said else (out.strip()[:40] or "тишина"), ok))
+
+        version("старый v1", "шаблон v1", True)
+        version("как у плагина", "шаблон v999", False)
+        version("CLAUDE.md без метки", "без метки", True)
+        version("нет CLAUDE.md", "", False)
+
         check_config(results)
 
         def roadmap(name, expect, needle, roadmap_text=MAP, extra=None):

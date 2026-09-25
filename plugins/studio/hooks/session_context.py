@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""SessionStart-хук плагина studio: напомнить новой сессии, что идёт партия.
+"""SessionStart-хук плагина studio: напомнить новой сессии, что идёт партия,
+и что документы проекта отстали от шаблона плагина (нужен /setup обновить).
 
 После обрыва (лимит, закрытый чат, сжатие контекста) чат разработки мог
 продолжить по памяти, а не по docs/BATCH.md. Если в таблице партии есть пункт
@@ -86,6 +87,34 @@ def context(rows):
     ])
 
 
+PLUGIN_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "skills", "setup", "templates", "CLAUDE.md")
+
+
+def template_version(path, missing=None):
+    """Число из метки «шаблон vN» в CLAUDE.md; нет файла — None, нет метки — missing."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            found = re.search(r"шаблон v(\d+)", f.read())
+    except OSError:
+        return None
+    return int(found.group(1)) if found else missing
+
+
+def outdated(project_root):
+    """Строка-напоминание, если документы проекта отстали от шаблона плагина."""
+    # Проект studio (есть docs/BATCH.md) без метки в CLAUDE.md — развёрнут до
+    # меток или метку стёрли: считать самым старым, /setup обновить разберётся.
+    mine = template_version(os.path.join(project_root, "CLAUDE.md"), missing=0)
+    theirs = template_version(PLUGIN_TEMPLATE)
+    if mine is None or theirs is None or mine >= theirs:
+        return None
+    was = f"шаблон v{mine}" if mine else "без метки шаблона"
+    return (f"studio: документы проекта — {was}, плагин — v{theirs}. "
+            "Первой строкой ответа скажи владельцу: «Процесс проекта отстал от "
+            "плагина — вызовите /setup обновить (пара минут)». Сам не запускай.")
+
+
 def main():
     try:
         event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
@@ -95,7 +124,9 @@ def main():
     if not batch:
         return 0
     with open(batch, encoding="utf-8", errors="replace") as f:
-        text = context(batch_rows(f.read()))
+        lines = [outdated(os.path.dirname(os.path.dirname(batch))),
+                 context(batch_rows(f.read()))]
+    text = "\n".join(line for line in lines if line)
     if text:
         # ASCII-JSON: не зависит от кодировки stdout.
         print(json.dumps({"hookSpecificOutput": {
