@@ -2,9 +2,10 @@
 """Самопроверка хуков studio: python -X utf8 <плагин>/hooks/selftest.py
 
 Подаёт guard_git.py и session_context.py синтетические события — с
-кириллической папкой проекта и путями с пробелами — и сверяет ответ. Проект не
-трогает: всё создаётся во временной папке и удаляется. Печатает таблицу и
-итог; код 0 — всё верно, 1 — нет. Зовут /board и /setup.
+кириллической папкой проекта и путями с пробелами — и сверяет ответ; так же
+прогоняет шаблонный tools/roadmap_check.py на пробных картах (коды 0/1/2).
+Проект не трогает: всё создаётся во временной папке и удаляется. Печатает
+таблицу и итог; код 0 — всё верно, 1 — нет. Зовут /board и /setup.
 """
 import json
 import os
@@ -16,6 +17,65 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUARD = os.path.join(HERE, "guard_git.py")
 CONTEXT = os.path.join(HERE, "session_context.py")
+ROADMAP_CHECK = os.path.join(HERE, "..", "skills", "setup", "templates", "tools", "roadmap_check.py")
+
+MAP_CONCEPT = """# Концепция
+
+## Одной строкой
+
+Выживание в северном лесу.
+
+## Ядро
+
+Рубить ели, торговать с деревней.
+
+## Цель и провал
+
+Пережить зиму.
+
+## Чего не делаем
+
+Мультиплеер.
+
+---
+
+# Что работает
+"""
+MAP = """# Дорожная карта
+
+## Этапы
+
+### Этап 1. Первая ночь [идёт] · размер: средний
+Зачем: весело ли рубить
+Что увидит игрок: зайти → срубить ель → пережить 3 дня
+Системы: С-01, С-02
+Зависит от: —
+Главный риск: нет
+Вопросы к этапу: нет
+Закрыт, когда: владелец прошёл «Что увидит игрок» и сказал «да»
+
+### Этап 2. Деревня [следом] · размер: большой
+Зачем: живая ли деревня
+Что увидит игрок: дойти до деревни → продать доски
+Системы: С-03
+Зависит от: Этап 1
+Главный риск: нет
+Вопросы к этапу: нет
+Закрыт, когда: владелец прошёл «Что увидит игрок» и сказал «да»
+
+### Покрытие замысла
+
+| № | Система | Раздел замысла | Слова владельца | Требует | Этап | Состояние |
+|---|---|---|---|---|---|---|
+| С-01 | Рубка | Ядро, Одной строкой | «Рубить ели» | — | 1 | в работе |
+| С-02 | Здоровье и смерть | Цель и провал | `[выведено из С-01]` | — | 1 | в работе |
+| С-03 | Торговля | Ядро | «торговать с деревней» | С-01 | 2 | впереди |
+| С-04 | Сеть | Чего не делаем | «Мультиплеер» | — | Не делаем | впереди |
+
+## Очередь
+
+- **[можно] [код] [этап 1] Рубка ели.**
+"""
 
 BATCH = """# Текущая партия
 
@@ -200,6 +260,31 @@ def main():
         context("битое событие", plain, False, payload=b"{not json")
 
         check_config(results)
+
+        def roadmap(name, expect, needle, roadmap_text=MAP, extra=None):
+            root = os.path.join(tmp, "проект игры", name)
+            write(os.path.join(root, "docs", "CONCEPT.md"), MAP_CONCEPT)
+            write(os.path.join(root, "docs", "ROADMAP.md"), roadmap_text)
+            for rel, text in (extra or {}).items():
+                write(os.path.join(root, rel), text)
+            p = subprocess.run([sys.executable, "-X", "utf8", ROADMAP_CHECK, "--root", root],
+                               capture_output=True, timeout=30)
+            out = p.stdout.decode("utf-8", "replace")
+            ok = p.returncode == expect and needle in out
+            results.append(("roadmap_check", name, f"код {expect}", f"код {p.returncode}", ok))
+
+        roadmap("верная карта", 0, "находок 0")
+        roadmap("система без места", 1, "нет места", MAP.replace("| 2 | впереди |", "|  | впереди |"))
+        roadmap("зависимость вперёд", 1, "зависимость вперёд",
+                MAP.replace("| `[выведено из С-01]` | — |", "| `[выведено из С-01]` | С-03 |"))
+        roadmap("этап без «Что увидит игрок»", 1, "нет «Что увидит игрок»",
+                MAP.replace("Что увидит игрок: дойти до деревни → продать доски\n", ""))
+        roadmap("«за 2 недели» в этапе", 1, "срок в «Этапах»",
+                MAP.replace("Зачем: весело ли рубить", "Зачем: за 2 недели понять, весело ли рубить"))
+        roadmap("два этапа «идёт»", 1, "больше одного", MAP.replace("[следом]", "[идёт]"))
+        roadmap("незамеченный GAME_CONCEPT.md", 1, "ни одной системы",
+                extra={"docs/GAME_CONCEPT.md": "# Замысел игры\n\n## Мир\n\nСевер и ели.\n"})
+        roadmap("нет «Этапов»", 2, "этапов нет", "# Дорожная карта\n\n## Очередь\n\n- **[можно] Пункт.**\n")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -209,12 +294,16 @@ def main():
     print("  ".join(h.ljust(w) for h, w in zip(head, widths)) + "  Итог")
     for r in results:
         print("  ".join(r[k].ljust(widths[k]) for k in range(4)) + ("  ок" if r[4] else "  ОШИБКА"))
-    bad = [f"{r[0]}: {r[1]}" for r in results if not r[4]]
-    if bad:
-        print(f"Итог: хуки НЕ работают — неверно {len(bad)} из {len(results)}: " + "; ".join(bad))
-        return 1
-    print(f"Итог: хуки работают — {len(results)}/{len(results)} верно.")
-    return 0
+    hooks = [r for r in results if r[0] != "roadmap_check"]
+    maps = [r for r in results if r[0] == "roadmap_check"]
+    bad = [f"{r[0]}: {r[1]}" for r in hooks if not r[4]]
+    bad_maps = [r[1] for r in maps if not r[4]]
+    verdict = (f"хуки НЕ работают — неверно {len(bad)} из {len(hooks)}: " + "; ".join(bad) if bad
+               else f"хуки работают — {len(hooks)}/{len(hooks)} верно")
+    verdict += (f"; проверка карты НЕ работает — неверно {len(bad_maps)} из {len(maps)}: " + "; ".join(bad_maps)
+                if bad_maps else f"; проверка карты — {len(maps)}/{len(maps)} верно")
+    print(f"Итог: {verdict}.")
+    return 1 if bad or bad_maps else 0
 
 
 if __name__ == "__main__":
