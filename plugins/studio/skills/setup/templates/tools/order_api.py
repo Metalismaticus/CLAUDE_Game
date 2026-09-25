@@ -8,26 +8,94 @@ OPENAI_API_KEY — в файлы проекта и в аргументы его 
     python tools/order_api.py --prompt-file p.txt --out assets/ui/icon.png \
         --size 1024x1024 --background transparent --ref assets/ui/a.png --ref assets/ui/b.png
 
-Коды возврата: 0 — файл сохранён; 1 — отказ или ошибка сервиса; 2 — неверный
-вызов (нет ключа, нет промта, цель уже существует).
+Файл пишется во временный рядом и встаёт на место одним os.replace: оборванная
+запись не оставляет полкартинки. Оплаченная картинка не теряется: цель
+появилась, пока шёл заказ, — она ложится рядом как <имя>-new1.<ext>; цель
+занята — остаётся во временном файле, путь в причине. При --background
+transparent пришедшее проверяет tools/asset_check.py --alpha required, если
+рядом есть Pillow; нет — предупреждение, проверит /add.
+
+Вывод: строка «сохранено: …» (с итогом проверки прозрачности) и последней —
+JSON-строка {"ok": …, "path": …, "model": …, "bytes": …}; bytes > 0 — файл
+сохранён по path. Причина отказа — в stderr.
+
+Коды возврата: 0 — файл сохранён; 1 — отказ или ошибка сервиса, либо файл
+сохранён, но проверка прозрачности красная (строка «сохранено», ok: false);
+2 — неверный вызов (нет ключа, нет промта, цель уже существует).
 """
 import argparse
 import base64
+import importlib.util
 import json
 import mimetypes
 import os
+import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
 
 API = "https://api.openai.com/v1/images"
 SIZES = ("1024x1024", "1536x1024", "1024x1536", "auto")
+RESULT = {"ok": False, "path": None, "model": None, "bytes": 0}
+
+
+def report():
+    print(json.dumps(RESULT, ensure_ascii=False))
 
 
 def fail(code, text):
     print(text, file=sys.stderr)
+    report()
     sys.exit(code)
+
+
+def save(path, data):
+    """Временный файл рядом с целью и os.replace — на месте либо целое, либо ничего."""
+    folder = os.path.dirname(os.path.abspath(path))
+    os.makedirs(folder, exist_ok=True)
+    handle, temp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".part", dir=folder)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except OSError:
+        if os.path.exists(temp):
+            os.remove(temp)
+        raise
+    try:
+        os.replace(temp, path)
+    except OSError as error:  # оплаченную картинку не терять
+        raise OSError(f"{error}; картинка осталась во временном файле {temp}") from error
+
+
+def spare_name(path):
+    root, ext = os.path.splitext(path)
+    number = 1
+    while os.path.exists(f"{root}-new{number}{ext}"):
+        number += 1
+    return f"{root}-new{number}{ext}"
+
+
+def check_alpha(path):
+    """tools/asset_check.py --alpha required: (True | False | None — не проверено, строка)."""
+    checker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asset_check.py")
+    if not os.path.isfile(checker):
+        return None, "прозрачность не проверена: нет tools/asset_check.py — проверит /add"
+    if importlib.util.find_spec("PIL") is None:
+        return None, "прозрачность не проверена: нужна Pillow (python -m pip install pillow) — проверит /add"
+    try:
+        done = subprocess.run([sys.executable, "-X", "utf8", checker, path, "--alpha", "required"],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, f"прозрачность не проверена: {error} — проверит /add"
+    lines = [line for line in done.stdout.splitlines() if line.strip()]
+    line = (lines[-1] if lines else "нет вывода").replace(f": {path} — ", ": ", 1)
+    if done.returncode in (0, 1):
+        return done.returncode == 0, f"проверка прозрачности — {line}"
+    return None, f"прозрачность не проверена: {line} — проверит /add"
 
 
 def multipart(fields, files):
@@ -66,12 +134,15 @@ def main():
     parser.add_argument("--model", default=os.environ.get("ORDER_IMAGE_MODEL", "gpt-image-1"))
     parser.add_argument("--force", action="store_true", help="перезаписать существующий файл")
     args = parser.parse_args()
+    RESULT.update(path=args.out, model=args.model)
 
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
         fail(2, "Нет OPENAI_API_KEY в окружении. Заказ остаётся долгом с исполнителем «вручную».")
     if os.path.exists(args.out) and not args.force:
         fail(2, f"Цель уже существует: {args.out}. Готовое не перезаписывается без --force.")
+    if not os.path.isfile(args.prompt_file):
+        fail(2, f"Нет файла промта: {args.prompt_file}")
     with open(args.prompt_file, encoding="utf-8") as handle:
         prompt = handle.read().strip()
     if not prompt:
@@ -120,12 +191,28 @@ def main():
     except (KeyError, IndexError, TypeError):
         fail(1, "В ответе нет картинки.")
 
-    folder = os.path.dirname(args.out)
-    if folder:
-        os.makedirs(folder, exist_ok=True)
-    with open(args.out, "wb") as handle:
-        handle.write(image)
-    print(f"сохранено: {args.out} ({len(image)} байт, модель {args.model}, образцов {len(args.ref)})")
+    if os.path.exists(args.out) and not args.force:
+        spare = spare_name(args.out)
+        try:
+            save(spare, image)
+        except OSError as error:
+            fail(1, f"Цель появилась, пока шёл заказ, и запасной файл не сохранён: {error}")
+        RESULT.update(path=spare, bytes=len(image))
+        fail(2, f"Цель появилась, пока шёл заказ: {args.out}. Не перезаписываю; новая картинка — {spare}.")
+    try:
+        save(args.out, image)
+    except OSError as error:
+        fail(1, f"Не удалось сохранить {args.out}: {error}")
+    RESULT.update(ok=True, bytes=len(image))
+    line = f"сохранено: {args.out} ({len(image)} байт, модель {args.model}, образцов {len(args.ref)})"
+    if args.background == "transparent":
+        good, verdict = check_alpha(args.out)
+        line += f"; {verdict}"
+        if good is False:
+            RESULT["ok"] = False
+    print(line)
+    report()
+    sys.exit(0 if RESULT["ok"] else 1)
 
 
 if __name__ == "__main__":
