@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_git_add.py\"",
+            "command": "python -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_git_add.py\"",
             "timeout": 10
           }
         ]

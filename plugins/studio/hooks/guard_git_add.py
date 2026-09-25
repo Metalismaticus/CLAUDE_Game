@@ -22,7 +22,10 @@ def main():
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")
     try:
-        event = json.load(sys.stdin)
+        # Claude Code присылает событие в UTF-8, а Python на Windows читает
+        # stdin в кодировке системы (cp1251): кириллический путь превращался
+        # в кракозябры, docs/BATCH.md «не находился», и хук молча пропускал всё.
+        event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     except ValueError:
         return 0
     if event.get("tool_name") not in ("Bash", "PowerShell"):
