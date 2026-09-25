@@ -13,12 +13,15 @@
 в состоянии «черновик», о теме которых в «Очереди» docs/ROADMAP.md есть пункт
 [вид] или [ощущение] (тема узнаётся по пути docs/refs/<тема>.md в пункте или
 его подробностях, иначе по названию темы). `--topic` — только эта тема, и её
-черновик считается недостачей сам по себе.
+черновик считается недостачей сам по себе. Папки «_…» (docs/refs/_concept/ —
+концепт всей игры: картинка, ТЗ, вырезки тем, лист) — не темы: паспорт им не
+нужен, пути к их файлам проверяются как все. Тип доказательства (и «сказано
+в ТЗ») на проверку не влияет.
 
-Заметки (на код не влияют): файлы в docs/refs/<тема>/, не записанные в
-паспорт; пункты [вид] и [ощущение], тема которых не узнана; пропавшие листы
-sheet-…, принятые кадры accepted-… и звуки вариантов variant-… — это история,
-работе они не нужны.
+Заметки (на код не влияют): файлы в docs/refs/<тема>/ и docs/refs/_…/, не
+записанные ни в паспорт, ни в INDEX.md; пункты [вид] и [ощущение], тема
+которых не узнана; пропавшие листы sheet-…, принятые кадры accepted-… и звуки
+вариантов variant-… — это история, работе они не нужны.
 
 Коды возврата: 0 — всё на месте; 1 — чего-то нет; 2 — неверный вызов.
 """
@@ -246,17 +249,26 @@ def main():
                 drafts.append(line)
 
     notes = lost
-    for passport in passports:
-        folder = os.path.join(refs, passport["stem"])
-        if passport["index"] or not os.path.isdir(folder):
-            continue
+
+    def loose(folder, note):
+        """Картинки и звуки папки, которых нет ни в одной записи (история — не в счёт)."""
         for name in sorted(os.listdir(folder)):
             full = os.path.abspath(os.path.join(folder, name))
             if (re.search(r"\." + MEDIA + r"$", name, re.IGNORECASE)
                     and not name.lower().startswith(HISTORY)
                     and os.path.normcase(full) not in referenced):
-                notes.append(f"лежит, но не записано в паспорт: {rel(root, full)}")
+                notes.append(f"{note}: {rel(root, full)}")
+
+    for passport in passports:
+        folder = os.path.join(refs, passport["stem"])
+        if not passport["index"] and os.path.isdir(folder):
+            loose(folder, "лежит, но не записано в паспорт")
+    # папки «_…» (_concept/ — концепт всей игры) — не темы: паспорт им не нужен
+    extra = [sub for sub in (sorted(os.listdir(refs)) if os.path.isdir(refs) else [])
+             if sub.startswith("_") and os.path.isdir(os.path.join(refs, sub))]
     if not args.topic:
+        for sub in extra:
+            loose(os.path.join(refs, sub), "лежит, но не записано ни в паспорт, ни в INDEX.md")
         for item in items:
             if id(item) not in linked:
                 notes.append(f"пункт {item['route']} «{item['name']}» — тема не узнана: впишите в пункт путь docs/refs/<тема>.md")
@@ -264,8 +276,11 @@ def main():
     real = [p for p in passports if not p["index"]]
     print(f"Образцы: паспортов {len(real)}, файлов в записях {count}"
           + (f", тема «{real[0]['title']}» — {real[0]['state']}" if args.topic and real else "") + ".")
-    if not files and not args.topic:
-        print("Папки docs/refs/ с паспортами нет — образцов ещё не разбирали.")
+    if not real and not args.topic:  # INDEX.md есть всегда после /setup — считать паспорта тем
+        if extra:
+            print(f"Паспортов нет — в docs/refs/ только {', '.join(s + '/' for s in extra)}: по темам ещё не разложено.")
+        elif not files:
+            print("Папки docs/refs/ с паспортами нет — образцов ещё не разбирали.")
     if missing:
         print(f"Нет на диске ({len(missing)}) — положите файл или поправьте путь в паспорте:")
         for where, what in missing:
