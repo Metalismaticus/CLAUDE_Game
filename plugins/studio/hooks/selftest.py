@@ -6,7 +6,9 @@
 прогоняет шаблонные tools/roadmap_check.py на пробных картах и
 tools/code_check.py на пробном репозитории (коды 0/1/2) и сверяет, что
 refs_check.py и roadmap_check.py видят в одной «Очереди» одни и те же пункты
-(копии разбора — по файлу на скрипт, стережёт их эта проверка). Проект не
+(копии разбора — по файлу на скрипт, стережёт их эта проверка); look_sheet.py
+--sanity — на пробных кадрах (серый, чёрный, копия с шумом; без Pillow —
+пропуск с пометкой). Проект не
 трогает: всё создаётся во временной папке и удаляется. Печатает таблицу и
 итог; код 0 — всё верно, 1 — нет. Зовут /setup — полностью и /board — с
 --quick: без пробных репозиториев code_check (секунды вместо ~40 с).
@@ -25,6 +27,7 @@ CONTEXT = os.path.join(HERE, "session_context.py")
 TOOLS = os.path.join(HERE, "..", "skills", "setup", "templates", "tools")
 ROADMAP_CHECK = os.path.join(TOOLS, "roadmap_check.py")
 CODE_CHECK = os.path.join(TOOLS, "code_check.py")
+LOOK_SHEET = os.path.join(TOOLS, "look_sheet.py")
 
 MAP_CONCEPT = """# Концепция
 
@@ -695,9 +698,54 @@ def check_roadmap(results, tmp):
     roadmap("нет «Этапов»", 2, "этапов нет", "# Дорожная карта\n\n## Очередь\n\n- **[можно] Пункт.**\n")
 
 
+def sanity_frames(folder):
+    """Пробные кадры для --sanity: сцена, её копия с шумом, другая сцена, серое и чёрное окна."""
+    from PIL import Image, ImageChops, ImageDraw
+    os.makedirs(folder, exist_ok=True)
+    scene = Image.new("RGB", (640, 360), (90, 140, 200))
+    draw = ImageDraw.Draw(scene)
+    for n in range(12):
+        draw.rectangle((n * 50, 200 - n * 7, n * 50 + 40, 360), fill=(40 + n * 12, 110, 60 + n * 5))
+        draw.ellipse((n * 53, 30 + n * 9, n * 53 + 30, 60 + n * 9), fill=(250, 250, 240 - n * 10))
+    noise = Image.effect_noise(scene.size, 12).convert("L")  # вокруг 128, ст. откл. 12
+    noisy = Image.merge("RGB", [ImageChops.add(c, noise, 1, -128) for c in scene.split()])
+    other = scene.transpose(Image.FLIP_LEFT_RIGHT)
+    ImageDraw.Draw(other).rectangle((200, 60, 440, 300), fill=(200, 60, 40))
+    names = {"сцена": scene, "шум": noisy, "другая": other,
+             "серое": Image.new("RGB", scene.size, (77, 77, 77)), "чёрное": Image.new("RGB", scene.size)}
+    for name, image in names.items():
+        image.save(os.path.join(folder, name + ".png"))
+    return {name: os.path.join(folder, name + ".png") for name in names}
+
+
+def check_sanity(results, tmp):
+    """look_sheet.py --sanity: пустой кадр, неотличимые варианты, кадр как в прошлом круге."""
+    try:
+        frames = sanity_frames(os.path.join(tmp, "кадры с пробелом"))
+    except ImportError:
+        results.append(("look_sheet", "--sanity: пропущено — нет Pillow", "—", "—", True))
+        return
+    f = frames
+    cases = (("нормальные кадры", 0, "кадры в порядке", [f["сцена"], f["другая"]]),
+             ("два одинаковых снимка стенда без --var", 0, "кадры в порядке", [f["сцена"], f["шум"]]),
+             ("разные варианты", 0, "кадры в порядке", ["--var", "A=" + f["сцена"], "--var", "B=" + f["другая"]]),
+             ("серое окно", 1, "брак: " + f["серое"], [f["сцена"], f["серое"]]),
+             ("чёрное окно", 1, "чёрное окно", [f["чёрное"]]),
+             ("варианты — копия с шумом", 1, "почти одинаковы", ["--var", "A=" + f["сцена"], "--var", "B=" + f["шум"]]),
+             ("как прошлый круг", 1, "правка не дошла", ["--prev", f["шум"] + "=" + f["сцена"]]),
+             ("прошлый круг другой", 0, "кадры в порядке", ["--prev", f["другая"] + "=" + f["сцена"]]),
+             ("--prev без «=»", 2, "", [f["сцена"], "--prev", f["шум"]]))
+    for name, expect, needle, extra in cases:
+        p = subprocess.run([sys.executable, "-X", "utf8", LOOK_SHEET, "--sanity", *extra], capture_output=True, timeout=60)
+        out = p.stdout.decode("utf-8", "replace")
+        ok = p.returncode == expect and needle in out
+        results.append(("look_sheet", "--sanity: " + name, f"код {expect}", f"код {p.returncode}", ok))
+
+
 GROUPS = (("хуки работают", "хуки НЕ работают", lambda r: r[0] in ("guard_git", "session_context", "hooks.json")),
           ("проверка карты", "проверка карты НЕ работает", lambda r: r[0] == "roadmap_check"),
-          ("проверка кода", "проверка кода НЕ работает", lambda r: r[0] in ("code_check", "паритет очереди")))
+          ("проверка кода", "проверка кода НЕ работает", lambda r: r[0] in ("code_check", "паритет очереди")),
+          ("проверка кадров", "проверка кадров НЕ работает", lambda r: r[0] == "look_sheet"))
 
 
 def verdict(results, quick=False):
@@ -744,6 +792,7 @@ def main():
         if not quick:
             check_code(results, tmp)
         check_parity(results, tmp)
+        check_sanity(results, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return verdict(results, quick)

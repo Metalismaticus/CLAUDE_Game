@@ -8,6 +8,7 @@ python -m pip install pillow
         --var A=shots/a.png --var B=shots/b.png --crop листва=0.40,0.20,0.25,0.25 \
         --out docs/refs/деревья/sheet-2026-09-25.png --json docs/refs/деревья/sheet-2026-09-25.json
     python tools/look_sheet.py --only-ref --ref a.png --ref b.png --out sheet.png --json refs.json
+    python tools/look_sheet.py --sanity shots/lip.png --var A=shots/a.png --var B=shots/b.png         --prev shots/a.png=rounds/p2-k1-r1/a.png
 
 Лист: ряд 1 — REF | A | B … одной высоты с крупными подписями (рамки — где
 вырезки); ряд 2 — оттенки серого; ряд 3 — размытие («прищур»); ряд 4 —
@@ -21,7 +22,18 @@ JSON: у каждой картинки и вырезки — средняя яр
 грубая ориентировка по свету и цвету, не мера похожести: решает владелец
 выбором по листу.
 
-Коды возврата: 0 — готово; 2 — нет Pillow, нет файла или неверные аргументы.
+`--sanity [<png>…] [--var A=<png>…] [--prev <кадр.png>=<прошлый.png>…]` — без
+листа, грубый брак до «Вижу:»: каждый кадр — не пустой ли, не однотонный ли
+(серое или чёрное окно: контраст и детализация ниже порога); кадры `--var` —
+не совпадают ли почти попарно (варианты не отличить глазом; голые кадры
+`--sanity` между собой не сравниваются — два одинаковых снимка стенда
+проверяют повторяемость); кадр из `--prev` — не совпадает ли почти со снимком
+прошлого круга (правка не дошла до кадра). Каждая находка — одной строкой
+«брак: <файл> — <что словами>»; код 1 — брак, кадры владельцу не показывать.
+Пороги подобраны на снимках водопада VoxelWorld.
+
+Коды возврата: 0 — готово (у --sanity — «кадры в порядке»); 1 — брак
+(--sanity); 2 — нет Pillow, нет файла или неверные аргументы.
 """
 import argparse
 import json
@@ -65,6 +77,16 @@ M, G = 24, 16  # поле листа и промежуток между стол
 LBL, SUB, RH, CAP, PS, SL, FOOT = 58, 28, 32, 26, 26, 23, 34
 MIN_CW = 250  # столбец не уже: иначе не влезут числа
 STAT_LINES = 5
+
+# --sanity: числа на копии шириной 256 px. На снимках водопада VoxelWorld у
+# настоящих кадров контраст ≥ 0.08, детализация ≥ 0.02, одна яркость ≤ 69 %
+# кадра; кадры одной сцены без правки расходятся меньше чем в 0.03 % пикселей.
+SANITY_SIDE = 256
+FLAT_CONTRAST = 0.03  # ст. откл. яркости 0..1
+FLAT_DETAIL = 0.006  # средний перепад соседних пикселей 0..1
+FLAT_SHARE = 0.97  # доля кадра в одной яркости ±3
+SAME_LEVEL = 13  # пиксель «другой», если разница больше 12 из 255
+SAME_SHARE = 0.0003  # другой меньше чем 0.03 % кадра — кадры совпадают
 
 
 class Args(argparse.ArgumentParser):
@@ -352,6 +374,72 @@ def build_sheet(entries, crops):
     return sheet
 
 
+def sanity_small(path):
+    image = load(path)
+    width = min(SANITY_SIDE, image.width)
+    return image.resize((width, max(1, round(width * image.height / image.width))), RESAMPLE_BOX)
+
+
+def flat_problem(small):
+    """Пустой или однотонный кадр — слова для человека, иначе None."""
+    gray = small.convert("L")
+    contrast = ImageStat.Stat(gray).stddev[0] / 255
+    edges = gray.filter(ImageFilter.FIND_EDGES).crop((1, 1, max(2, gray.width - 1), max(2, gray.height - 1)))
+    detail = ImageStat.Stat(edges).mean[0] / 255
+    hist = gray.histogram()
+    share = max(sum(hist[max(0, i - 3):i + 4]) for i in range(256)) / (gray.width * gray.height)
+    if contrast >= FLAT_CONTRAST and detail >= FLAT_DETAIL and share < FLAT_SHARE:
+        return None
+    tone = "чёрное" if ImageStat.Stat(gray).mean[0] < 24 else "однотонное"
+    return (f"пустой кадр: почти одного цвета ({tone} окно: продукт не отрисовал сцену?); "
+            f"контраст {contrast:.3f}, детализация {detail:.3f}, одной яркости {share:.0%} кадра")
+
+
+def changed_share(a, b):
+    """Доля заметно разных пикселей; None — кадры разной формы, не сравнить."""
+    if a.size != b.size:
+        return None
+    soft = ImageFilter.GaussianBlur(1)  # шум рендера и сжатия не в счёт
+    hist = ImageChops.difference(a.filter(soft), b.filter(soft)).convert("L").histogram()
+    return sum(hist[SAME_LEVEL:]) / (a.width * a.height)
+
+
+def parse_prev(items):
+    pairs = []
+    for item in items:
+        frame, sep, prev = item.rpartition("=")
+        if not sep or not frame or not prev:
+            fail(2, f"неверные аргументы: --prev «{item}» — нужно <кадр.png>=<снимок прошлого круга.png>")
+        pairs.append((frame, prev))
+    return pairs
+
+
+def sanity(frames, variants, prevs):
+    """--sanity: грубый брак кадров. Код 0 — «кадры в порядке», 1 — брак."""
+    paths = list(dict.fromkeys(frames + [path for _, path in variants] + [frame for frame, _ in prevs]))
+    if not paths:
+        fail(2, "неверные аргументы: нет кадров — --sanity <png>… , --var A=<png>… или --prev <кадр>=<прошлый>")
+    small = {path: sanity_small(path) for path in paths}
+    flats = [(path, flat_problem(small[path])) for path in paths]
+    found = [f"брак: {path} — {problem}" for path, problem in flats if problem]
+    for i, (la, a) in enumerate(variants):
+        for lb, b in variants[i + 1:]:
+            share = changed_share(small[a], small[b])
+            if share is not None and share < SAME_SHARE:
+                found.append(f"брак: {a} и {b} — варианты {la} и {lb} почти одинаковы, глазом не отличить "
+                             f"(разных пикселей {share:.3%}); развести сильнее или снять ракурс, где видна разница")
+    for frame, prev in prevs:
+        share = changed_share(small[frame], sanity_small(prev))
+        if share is not None and share < SAME_SHARE:
+            found.append(f"брак: {frame} — почти как снимок прошлого круга {prev}: правка не дошла до кадра "
+                         f"(разных пикселей {share:.3%}); пересобрать и переснять")
+    for line in found:
+        print(line)
+    print(f"брак кадров: {len(found)} — владельцу не показывать, сначала починить" if found
+          else f"кадры в порядке ({len(paths)})")
+    return 1 if found else 0
+
+
 def main():
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -366,10 +454,18 @@ def main():
     parser.add_argument("--out", help="куда сохранить лист (png)")
     parser.add_argument("--json", help="куда сохранить числа (json)")
     parser.add_argument("--only-ref", action="store_true", help="лист и числа только образцов")
+    parser.add_argument("--sanity", action="append", nargs="*", default=[], metavar="PNG",
+                        help="без листа: грубый брак кадров; варианты сравниваются между собой, только если --var")
+    parser.add_argument("--prev", action="append", nargs="+", default=[], metavar="КАДР=ПРОШЛЫЙ",
+                        help="с --sanity: <кадр.png>=<снимок прошлого круга.png>; можно несколько")
     args = parser.parse_args()
 
     if Image is None:
         fail(2, "нужна Pillow: python -m pip install pillow")
+    if args.sanity or args.prev:
+        if args.ref or args.crop or args.out or args.json or args.only_ref or not args.sanity:
+            fail(2, "неверные аргументы: --sanity [<png>…] [--var A=<png>…] [--prev <кадр>=<прошлый>…] — без листа")
+        return sanity(flat(args.sanity), parse_vars(flat(args.var)), parse_prev(flat(args.prev)))
 
     refs = flat(args.ref)
     variants = parse_vars(flat(args.var))
