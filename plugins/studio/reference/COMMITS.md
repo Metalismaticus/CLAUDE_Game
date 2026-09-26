@@ -97,12 +97,14 @@ For batch item 3, "Mining" in the queue.
 | Что | English | Русский |
 |---|---|---|
 | стенд | `Item N: Add the look stand` · `Item N: Add the feel stand` | `Пункт N: стенд вида` · `Пункт N: стенд ощущения` |
+| основа до выбора | `Item N: Base — <что изменилось>` | `Пункт N: основа — <что изменилось>` |
 | варианты к выбору | `Item N: Offer <тема> variants, choice K` | `Пункт N: варианты <тема>, выбор K` |
 | поправка по слову владельца | `Item N: Rework — <что изменилось>` | `Пункт N: поправка — <что изменилось>` |
 | партия снята | `Batch: Take N items from the queue` | `Партия: снято N пунктов из очереди` |
 | волна | `Batch: Start wave W with items N, M` | `Партия: волна W — пункты N, M` |
 | пункт готов | `Batch: Mark item N ready for review` | `Партия: пункт N готов к проверке` |
 | ждёт выбора | `Batch: Hold item N for the owner's choice` | `Партия: пункт N ждёт выбора` |
+| вопрос — в сценарист | `Batch: Hold item N for the owner's answer` | `Партия: пункт N ждёт ответа` |
 | выбор записан | `Batch: Record choice K for item N` | `Партия: пункт N — выбор K` |
 | итог запуска | `Batch: Record run results` | `Партия: итог запуска` |
 | приёмка | `Accept: <что теперь может игрок>` | `Приёмка: <что теперь может игрок>` |
@@ -126,6 +128,7 @@ git log <хеш>..HEAD -E --grep "^(Пункт|Item) N:"
   их не находит; с каким коммитом откат в паре — строка `This reverts
   commit <хеш>` в его теле;
 - стенд — `-E --grep "^(Пункт|Item) [0-9]+: (стенд|Add the (look|feel) stand)"`;
+- основа пункта N — `-E --grep "^(Пункт|Item) N: (основа|Base) — "`;
 - прочие пометки — так же парой: `"^(Партия|Batch):"`,
   `"^(Приёмка|Accept):"`.
 
