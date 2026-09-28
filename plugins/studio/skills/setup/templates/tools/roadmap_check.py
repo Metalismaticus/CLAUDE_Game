@@ -23,7 +23,11 @@
 от более позднего; у этапа нет «Что увидит игрок» или «Закрыт, когда»; в
 «Этапах» дни или даты (кроме «сделан <дата>»; цитаты «…» и игровое время —
 «3 игровых дня», «пережить 3 дня», «раз в 30 дней» — не в счёт); этапов
-«идёт» больше одного.
+«идёт» больше одного; свет первым: в docs/refs есть паспорт вида темы света
+(в названии — свет, освещение, облик, атмосфера: глобальный облик — свет,
+дымка, тон, палитра), его кадр не «принят», а в «Очереди» пункт [вид] другой
+темы стоит [можно] — ему место [ждёт света] (снимает /done приёмкой света;
+темы света нет — правило не действует; так же стережёт refs_check.py).
 
 Заметки (на код не влияют): пункт «Очереди» с [этап N], где этап N не
 «идёт»; пункт без [этап N] (кроме «Уборка:» — она вне этапов); у этапа не
@@ -73,6 +77,11 @@ DONE = re.compile(r"сделан\w*\s*[:—–-]?\s*(?:" + DATE + r")", re.IGNOR
 QUOTE = re.compile(r"«[^»]*»")
 GAME_TIME = re.compile(r"игров\w*|игры|игре|пережить|прожить|выжить|продержаться|раз|кажд\w*", re.IGNORECASE)
 RANGE = re.compile(r"(?<!\w)[СC]-(\d+)\s*(?:–|—|-|…|\.\.\.?)\s*[СC]-(\d+)(?!\d)")
+PASSPORT_LINE = r"^[\s>*_-]*%s\s*[:：][\s*_]*(.+)$"
+STATE_LINE = re.compile(PASSPORT_LINE % "Состояние", re.MULTILINE)
+KIND_LINE = re.compile(PASSPORT_LINE % "Вид работы", re.MULTILINE)
+PASSPORT_TITLE = re.compile(r"^#\s*Образец\s*[:：]\s*(.+)$", re.MULTILINE)
+LIGHT_WORDS = ("свет", "освещ", "light", "облик", "атмосфер")  # тема света: глобальный облик
 
 
 def rel(root, path):
@@ -302,6 +311,38 @@ def queue_items(lines, section):
         name = re.sub(r"\[[^\]]*\]\s*", "", name.group(1) if name else re.sub(r"^\W+", "", text)).strip(" .")
         result.append({"text": text, "name": name[:60], "labels": [int(m) for m in LABEL.findall(text)]})
     return result
+
+
+def light_words(text):
+    return any(w.startswith(LIGHT_WORDS) for w in re.findall(r"\w+", text.lower()))
+
+
+def light_passport(root):
+    """Паспорт вида темы света в docs/refs (глобальный облик: свет, дымка, тон, палитра) — или None."""
+    refs = os.path.join(root, "docs", "refs")
+    for name in sorted(os.listdir(refs)) if os.path.isdir(refs) else []:
+        if not name.lower().endswith(".md") or name.startswith("_") or name.lower() == "index.md":
+            continue
+        text = COMMENT.sub(" ", read(os.path.join(refs, name)))
+        kind = KIND_LINE.search(text)
+        if not kind or "|" in kind.group(1) or not kind.group(1).strip().lower().startswith("вид"):
+            continue
+        stem = name[:-3]
+        title = PASSPORT_TITLE.search(text)
+        if light_words((title.group(1) if title else "") + " " + stem.replace("-", " ")):
+            state = STATE_LINE.search(text)
+            state = state.group(1).strip().strip("*_` ") if state else "не указано"
+            return {"stem": stem.lower(), "rel": f"docs/refs/{name}", "state": state,
+                    "accepted": state.lower().startswith("принят")}
+    return None
+
+
+def about_light(item, light):
+    """Пункт очереди — о теме света: по пути docs/refs/<тема>.md, без пути — по словам названия."""
+    low = item["text"].lower().replace("\\", "/")
+    if "refs/" in low:
+        return f"refs/{light['stem']}.md" in low or f"refs/{light['stem']}/" in low
+    return light_words(item["name"])
 
 
 def spans(text):
@@ -547,6 +588,14 @@ def main():
     done_items = queue_items(clean(read(roadmap)), r"сделано\b") if os.path.isfile(roadmap) else None
     done = sum(1 for item in done_items or [] if now and now["n"] in item["labels"])
 
+    # Свет первым: пока кадр темы света не принят, [вид] других тем с [можно] не берутся.
+    light = light_passport(root)
+    if light and not light["accepted"]:
+        for item in queue or []:
+            if "[вид]" in item["text"] and "[можно]" in item["text"] and not about_light(item, light):
+                findings.append(f"«{item['name']}» — [вид] [можно], а кадр темы света не принят ({light['rel']} — "
+                                f"{light['state']}): первым идёт свет, остальным [вид] — [ждёт света]")
+
     # Вывод.
     if args.plan:
         print(f"Черновик: {rel(root, source)}.")
@@ -559,6 +608,8 @@ def main():
         head += " — ни один не «идёт»"
     if following:
         head += f", следом Этап {following[0]['n']}"
+    head += (f"; свет — {light['rel']}: {light['state']}" if light
+             else "; темы света нет — правило [ждёт света] не действует")
     print(head + ".")
     kinds = {"stage": 0, "later": 0, "no": 0}
     for row in rows:

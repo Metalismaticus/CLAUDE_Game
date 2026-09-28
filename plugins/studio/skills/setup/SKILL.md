@@ -84,14 +84,18 @@ disable-model-invocation: true
    окне ≤ 4 вопроса; быстрый старт — ≤ 4 раундов, подробный — ≤ 7. После (г)
    — установка движка, `steps/env.md` п. 3–4.
 6. **3D** — `steps/3d.md`: «Правила проекта» масштаба, осей и импорта; виды
-   заказов `model3d`, `texture`; пункт «Настройки графики».
+   заказов `model3d` (glTF `.glb`, метры, Y вверх, опорная точка внизу по
+   центру, «вперёд» +Z; проверка пришедшего — `tools/model_check.py`),
+   `texture`; пункт «Настройки графики».
 7. **Пересказ** — `steps/plan.md` (проверки продумать до него —
    `steps/testing.md`): `docs/SETUP-PLAN.md`, путь владельцу, окно «Принять
    (Recommended) / Поправить понимание / Поправить очередь / Ещё поговорить».
    Кроме «Принять» — поправить и спросить снова. Подробный старт или больше 7
    систем — затем окно про `/roadmap`.
-8. **Файлы** — `steps/plan.md`: документы из шаблонов, `docs/refs/`,
-   `.gitattributes`, `.gitignore`, README по ответу раунда (д), «Git» в
+8. **Файлы** — `steps/plan.md`: документы из шаблонов, `docs/refs/` (мир
+   судят глазом — и `docs/refs/TECHNIQUES.md`, «Свои приёмы» к библиотеке
+   `../../reference/LOOK_TECHNIQUES.md`), `.gitattributes`, `.gitignore`,
+   README по ответу раунда (д), «Git» в
    `CLAUDE.md`; у игры — `tools/perf_ref.json`, «Бюджет производительности»
    и «Как открывается окно» в `docs/TESTING.md` (`steps/testing.md`); есть
    код — `tools/code_check.py` (у Godot и `tools/load_all.gd`); быстрый

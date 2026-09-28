@@ -43,6 +43,8 @@
 | `docs/orders/ledger.md` | есть виды заказов или это игра: журнал происхождения ассетов для `/release` |
 | `docs/prompts/`, `docs/specs/` | пустые папки с `.gitkeep` |
 | `tools/look_sheet.py`, `tools/refs_check.py` | есть `docs/refs/` |
+| `docs/refs/TECHNIQUES.md` | есть `docs/refs/` и мир судят глазом: «Свои приёмы» рядом с библиотекой плагина |
+| `tools/model_check.py` | 3D: есть `model3d` или модели `.glb`/`.gltf` |
 | `tools/perf_ref.json` | мир в реальном времени (игра, стенд, просмотрщик): таблица железа для «Бюджета производительности» и автоподбора «Настроек графики» |
 | `tools/order_api.py` | включён исполнитель `api` |
 | `tools/asset_check.py` | есть заказы картинок или звука (`art`, `sfx`, `music`, `texture`) или это игра: звук вариантов `[ощущение]` |

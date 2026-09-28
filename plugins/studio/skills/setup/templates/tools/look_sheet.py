@@ -6,9 +6,10 @@ python -m pip install pillow
 
     python tools/look_sheet.py --ref docs/refs/деревья/ref-valheim-1.png \
         --var A=shots/a.png --var B=shots/b.png --crop листва=0.40,0.20,0.25,0.25 \
+        --ref-crop листва=0.55,0.10,0.30,0.30 --time вечер --axis форма \
         --out docs/refs/деревья/sheet-2026-09-25.png --json docs/refs/деревья/sheet-2026-09-25.json
     python tools/look_sheet.py --only-ref --ref a.png --ref b.png --out sheet.png --json refs.json
-    python tools/look_sheet.py --sanity shots/lip.png --var A=shots/a.png --var B=shots/b.png         --prev shots/a.png=rounds/p2-k1-r1/a.png
+    python tools/look_sheet.py --sanity shots/lip.png --var A=shots/a.png --var B=shots/b.png         --prev shots/a.png=rounds/p2-k1-r1/a.png [--axis форма]
 
 Лист: ряд 1 — REF | A | B … одной высоты с крупными подписями (рамки — где
 вырезки); ряд 2 — оттенки серого; ряд 3 — размытие («прищур»); ряд 4 —
@@ -16,24 +17,47 @@ python -m pip install pillow
 с HEX и числа. Длинная сторона листа ≤ 2576 px. `--only-ref` — только образцы
 (лист можно не строить: хватит `--json`).
 
+`--ref-crop ИМЯ=x,y,w,h` — своя вырезка у REF под тем же именем, что у
+`--crop`: образец другого ракурса режется там, где его предмет (задана —
+пропорции целых кадров не сверяются, только вырезок). `--time <час>` — час
+суток кадров (столбец «Кадры» паспорта): в шапку листа и в JSON, чтобы
+проверяющий сверил с паспортом. `--axis <ось>` — ось выбора («форма», «цвет»,
+«приём»): в JSON и в шапку; при `--axis форма` варианты, различимые только
+оттенком, — брак, код 1; без оси — предупреждение; при другой оси («приём»,
+«цвет», «свет» — варианты и должны быть одной формы) — заметка.
+
 JSON: у каждой картинки и вырезки — средняя яркость, контраст (ст. откл.
 яркости), средняя насыщенность, гистограмма тона (12 корзин по 30°, только
-цветные пиксели), палитра; отличия каждой картинки от первого REF. Числа —
-грубая ориентировка по свету и цвету, не мера похожести: решает владелец
-выбором по листу.
+цветные пиксели), палитра; отличия каждой картинки от первого REF; `time`,
+`axis`, `ref_crops`; `defects` — брак (код 1): при `--axis форма` варианты
+различаются только оттенком; `warnings` — совет, показ листа не запрещает:
+пропорции REF и варианта расходятся больше чем вдвое (нужна вырезка REF или
+образец того же ракурса), «только оттенком» без оси, совпадение краёв «на
+грани»; `notes` — к сведению: при другой оси варианты одной формы, разного
+тона; `edge_same` — совпадение карты краёв по парам вариантов. Числа — грубая
+ориентировка по свету и цвету, не мера похожести: решает владелец выбором по
+листу.
 
 `--sanity [<png>…] [--var A=<png>…] [--prev <кадр.png>=<прошлый.png>…]` — без
 листа, грубый брак до «Вижу:»: каждый кадр — не пустой ли, не однотонный ли
 (серое или чёрное окно: контраст и детализация ниже порога); кадры `--var` —
 не совпадают ли почти попарно (варианты не отличить глазом; голые кадры
 `--sanity` между собой не сравниваются — два одинаковых снимка стенда
-проверяют повторяемость); кадр из `--prev` — не совпадает ли почти со снимком
-прошлого круга (правка не дошла до кадра). Каждая находка — одной строкой
-«брак: <файл> — <что словами>»; код 1 — брак, кадры владельцу не показывать.
-Пороги подобраны на снимках водопада VoxelWorld.
+проверяют повторяемость) и не различаются ли **только оттенком** — там, где
+цвет разный, сила краёв (FIND_EDGES без цвета) совпадает (корреляция ≥ 0,92;
+0,9–0,92 — «на грани», не брак): та же форма, подкрашенная по-разному; с
+`--axis форма` это брак, без оси — предупреждение, при другой оси — заметка;
+кадр из `--prev` — не совпадает ли почти со снимком прошлого круга (правка не
+дошла до кадра). Каждая находка — одной строкой «брак: <файл> — <что
+словами>»; код 1 — брак, кадры владельцу не показывать. Пороги подобраны на
+снимках водопада VoxelWorld. Ограничение: варианты снимать в одном свете и
+часе, глобальный тон между ними не менять — подкраска всего кадра держит
+корреляцию краёв на неизменном рельефе, и новая форма малого предмета (крона
+в кадре меньше трети) пройдёт как «только оттенком».
 
 Коды возврата: 0 — готово (у --sanity — «кадры в порядке»); 1 — брак
-(--sanity); 2 — нет Pillow, нет файла или неверные аргументы.
+(--sanity) или «только оттенком» при --axis форма; 2 — нет Pillow, нет файла
+или неверные аргументы.
 """
 import argparse
 import json
@@ -64,6 +88,13 @@ LEGEND = {
     "hue_hist": "доли цветных пикселей по 12 корзинам тона, центры hue_bins_deg",
     "palette": "6 цветов квантованием Pillow, по убыванию доли",
     "diff_from_ref": "картинка минус первый REF; hue_hist и palette_shift — расстояние 0..1",
+    "time": "час суток кадров из паспорта (--time); проверяющий сверяет с паспортом",
+    "axis": "ось выбора (--axis): форма, цвет, приём",
+    "defects": "брак, код 1: при --axis форма варианты различаются только оттенком — лист владельцу не показывать, развести приёмами",
+    "warnings": "совет, показ листа не запрещает: пропорции REF и варианта (нужна --ref-crop или образец того же ракурса), "
+                "«только оттенком» без оси, совпадение краёв на грани — судит координатор глазом",
+    "notes": "к сведению: при оси приём, цвет или свет варианты одной формы, разного тона — допустимо",
+    "edge_same": "совпадение карты краёв по парам вариантов 0..1 там, где цвет разный: ≥ 0.92 — та же форма, 0.9–0.92 — на грани",
 }
 
 BG = (38, 38, 38)
@@ -74,9 +105,11 @@ VAR_COLOR = (130, 200, 255)
 CROP_COLORS = ((255, 64, 160), (0, 220, 255), (170, 255, 60), (255, 150, 0))
 
 M, G = 24, 16  # поле листа и промежуток между столбцами
-LBL, SUB, RH, CAP, PS, SL, FOOT = 58, 28, 32, 26, 26, 23, 34
+LBL, SUB, RH, CAP, PS, SL, FOOT, HEAD = 58, 28, 32, 26, 26, 23, 34, 30
 MIN_CW = 250  # столбец не уже: иначе не влезут числа
 STAT_LINES = 5
+ASPECT_GAP = 2.0  # пропорции REF и варианта расходятся больше чем вдвое — предупреждение
+FORM_AXIS = "форма"
 
 # --sanity: числа на копии шириной 256 px. На снимках водопада VoxelWorld у
 # настоящих кадров контраст ≥ 0.08, детализация ≥ 0.02, одна яркость ≤ 69 %
@@ -87,6 +120,10 @@ FLAT_DETAIL = 0.006  # средний перепад соседних пиксе
 FLAT_SHARE = 0.97  # доля кадра в одной яркости ±3
 SAME_LEVEL = 13  # пиксель «другой», если разница больше 12 из 255
 SAME_SHARE = 0.0003  # другой меньше чем 0.03 % кадра — кадры совпадают
+EDGE_SAME = 0.9  # сила краёв в перекрашенной области совпадает (корреляция ≥ 0.9) — только оттенком
+EDGE_SURE = 0.92  # ниже — «на грани»: подкраски 0.91–0.99, формы 0.45–0.88, зазор три сотых — не брак
+EDGE_GROW = 5  # перекрашенная область растёт на 2 px, чтобы взять её края
+KINDS = ("брак", "предупреждение", "заметка")
 
 
 class Args(argparse.ArgumentParser):
@@ -123,7 +160,7 @@ def parse_vars(items):
     return result
 
 
-def parse_crops(items):
+def parse_crops(items, flag="--crop"):
     crops = []
     for n, item in enumerate(items, 1):
         name, _, box = item.rpartition("=")
@@ -131,14 +168,14 @@ def parse_crops(items):
         try:
             x, y, w, h = (float(v) for v in box.split(","))
         except ValueError:
-            fail(2, f"неверные аргументы: вырезка «{item}» — нужно <имя>=x,y,w,h, доли 0..1")
+            fail(2, f"неверные аргументы: вырезка {flag} «{item}» — нужно <имя>=x,y,w,h, доли 0..1")
         eps = 1e-6
         if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 and 0 < h <= 1
                 and x + w <= 1 + eps and y + h <= 1 + eps):
-            fail(2, f"неверные аргументы: вырезка «{item}» выходит за кадр — доли 0..1, x+w и y+h ≤ 1")
+            fail(2, f"неверные аргументы: вырезка {flag} «{item}» выходит за кадр — доли 0..1, x+w и y+h ≤ 1")
         crops.append((name, (x, y, w, h)))
     if len({name for name, _ in crops}) != len(crops):
-        fail(2, "неверные аргументы: имена вырезок повторяются")
+        fail(2, f"неверные аргументы: имена вырезок {flag} повторяются")
     return crops
 
 
@@ -251,33 +288,38 @@ def signed(value):
     return ("+" if value > 0 else "−" if value < 0 else "±") + f"{abs(value):.2f}"
 
 
-def layout(images, crops, height, crop_max):
+def fmt_box(box):
+    return ",".join(f"{v:g}" for v in box)
+
+
+def layout(entries, crops, height, crop_max, head):
     """Размеры листа при высоте ряда `height` и пределе высоты вырезки `crop_max`."""
+    images = [entry["image"] for entry in entries]
     cw = max(MIN_CW, max(round(height * im.width / im.height) for im in images))
     rows = []
-    for _, box in crops:
+    for name, _ in crops:
         tiles = []
-        for im in images:
-            left, top, right, bottom = crop_box(im, box)
+        for entry in entries:
+            left, top, right, bottom = crop_box(entry["image"], entry["boxes"][name])
             pw, ph = right - left, bottom - top
             scale = min(1.0, cw / pw, crop_max / ph)
             tiles.append(((left, top, right, bottom), scale, max(1, round(pw * scale)), max(1, round(ph * scale))))
         rows.append(tiles)
     width = 2 * M + len(images) * cw + (len(images) - 1) * G
-    total = (M + LBL + SUB + height + 2 * (RH + height)
+    total = (M + (HEAD if head else 0) + LBL + SUB + height + 2 * (RH + height)
              + sum(RH + max(t[3] for t in tiles) + CAP for tiles in rows)
              + RH + 6 * PS + STAT_LINES * SL + FOOT + M)
     return cw, rows, width, total
 
 
-def build_sheet(entries, crops):
+def build_sheet(entries, crops, head=""):
     images = [entry["image"] for entry in entries]
     count = len(images)
     avail = LIMIT - 2 * M - (count - 1) * G
     height = min(720, max(im.height for im in images))
     height = max(80, min(height, int(avail / count / max(im.width / im.height for im in images))))
     crop_max = 640
-    cw, rows, width, total = layout(images, crops, height, crop_max)
+    cw, rows, width, total = layout(entries, crops, height, crop_max, head)
     # не влезает: сначала ужать вырезки, потом главные ряды, потом вырезки ещё
     for shrink_height, floor in ((False, 240), (True, 160), (False, 80)):
         while total > LIMIT and (height if shrink_height else crop_max) > floor:
@@ -285,13 +327,16 @@ def build_sheet(entries, crops):
                 height = int(height * 0.92)
             else:
                 crop_max = int(crop_max * 0.85)
-            cw, rows, width, total = layout(images, crops, height, crop_max)
+            cw, rows, width, total = layout(entries, crops, height, crop_max, head)
 
     sheet = Image.new("RGB", (width, total), BG)
     draw = ImageDraw.Draw(sheet)
     big, small, bold_small = font(44, True), font(17), font(18, True)
     xs = [M + i * (cw + G) for i in range(count)]
     y = M
+    if head:  # шапка: час суток и ось выбора — проверяющий сверяет с паспортом
+        draw.text((M, y + 4), fit(draw, head, bold_small, width - 2 * M), font=bold_small, fill=REF_COLOR)
+        y += HEAD
 
     tiles = []
     for i, entry in enumerate(entries):
@@ -306,8 +351,8 @@ def build_sheet(entries, crops):
     for i, tile in enumerate(tiles):
         x = xs[i] + (cw - tile.width) // 2
         sheet.paste(tile, (x, y))
-        for k, (_, box) in enumerate(crops):
-            bx, by, bw, bh = box
+        for k, (name, _) in enumerate(crops):
+            bx, by, bw, bh = entries[i]["boxes"][name]
             rect = (x + bx * tile.width, y + by * height,
                     x + (bx + bw) * tile.width - 1, y + (by + bh) * height - 1)
             draw.rectangle(rect, outline=CROP_COLORS[k], width=3)
@@ -325,8 +370,11 @@ def build_sheet(entries, crops):
 
     for k, ((name, box), row) in enumerate(zip(crops, rows)):
         draw.rectangle((M, y + 9, M + 14, y + 23), fill=CROP_COLORS[k])
-        head = f"вырезка {k + 1} «{name}» — x,y,w,h {','.join(f'{v:g}' for v in box)}, исходное разрешение"
-        draw.text((M + 22, y + 6), fit(draw, head, bold_small, width - 2 * M - 22), font=bold_small, fill=TEXT)
+        head_line = f"вырезка {k + 1} «{name}» — x,y,w,h {fmt_box(box)}, исходное разрешение"
+        ref_boxes = {fmt_box(e["boxes"][name]) for e in entries if e["role"] == "ref"} - {fmt_box(box)}
+        if ref_boxes:
+            head_line += f"; у REF — {', '.join(sorted(ref_boxes))}"
+        draw.text((M + 22, y + 6), fit(draw, head_line, bold_small, width - 2 * M - 22), font=bold_small, fill=TEXT)
         y += RH
         row_h = max(t[3] for t in row)
         for i, (pixels, scale, tw, th) in enumerate(row):
@@ -375,7 +423,10 @@ def build_sheet(entries, crops):
 
 
 def sanity_small(path):
-    image = load(path)
+    return shrink(load(path))
+
+
+def shrink(image):
     width = min(SANITY_SIDE, image.width)
     return image.resize((width, max(1, round(width * image.height / image.width))), RESAMPLE_BOX)
 
@@ -400,8 +451,104 @@ def changed_share(a, b):
     if a.size != b.size:
         return None
     soft = ImageFilter.GaussianBlur(1)  # шум рендера и сжатия не в счёт
-    hist = ImageChops.difference(a.filter(soft), b.filter(soft)).convert("L").histogram()
-    return sum(hist[SAME_LEVEL:]) / (a.width * a.height)
+    bands = ImageChops.difference(a.filter(soft), b.filter(soft)).split()
+    most = ImageChops.lighter(ImageChops.lighter(bands[0], bands[1]), bands[2])  # по цвету, не по яркости
+    return sum(most.histogram()[SAME_LEVEL:]) / (a.width * a.height)
+
+
+def pixels(image):
+    return list(getattr(image, "get_flattened_data", image.getdata)())
+
+
+def hue_only(a, b):
+    """(совпадение краёв там, где цвет разный, доля разных пикселей) или None — не сравнить.
+
+    Где цвет разный, сравнивается сила краёв (FIND_EDGES без цвета): подкраска её не двигает,
+    новая форма — двигает. Порог 0.9 снят с 55 пар снимков VoxelWorld: подкраски неба 0.92–0.99,
+    варианты формы кроны, полотна и рельефа 0.29–0.88. Ограничение: подкраска всего кадра при
+    новой форме малого предмета (крона меньше трети кадра) даёт 0.98 — корреляцию держит
+    неизменный рельеф; варианты снимать в одном свете и часе, глобальный тон не менять.
+    """
+    changed = changed_share(a, b)
+    if changed is None or changed < SAME_SHARE:
+        return None  # разной формы или почти одинаковы — это другие строки
+    soft = ImageFilter.GaussianBlur(1)
+    a, b = a.filter(soft), b.filter(soft)
+    bands = ImageChops.difference(a, b).split()
+    most = ImageChops.lighter(ImageChops.lighter(bands[0], bands[1]), bands[2])
+    mask = pixels(most.point(lambda v: 255 if v >= SAME_LEVEL else 0).filter(ImageFilter.MaxFilter(EDGE_GROW)))
+    ea = pixels(a.convert("L").filter(ImageFilter.FIND_EDGES))
+    eb = pixels(b.convert("L").filter(ImageFilter.FIND_EDGES))
+    xs = [x for m, x in zip(mask, ea) if m]
+    ys = [y for m, y in zip(mask, eb) if m]
+    n = len(xs)
+    if not n:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx, syy = sum((x - mx) ** 2 for x in xs), sum((y - my) ** 2 for y in ys)
+    if not sxx or not syy:  # краёв нет вовсе: ровная заливка перекрашена
+        same = 1.0 if max(mx, my) < 1 else 0.0
+    else:
+        same = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sxx * syy) ** 0.5
+    return same, changed
+
+
+def hue_only_lines(variants, small, axis):
+    """По парам вариантов: строки (вид из KINDS, текст) о совпадении краёв и `same` по парам для JSON.
+
+    Края там же (≥ EDGE_SURE): без оси — предупреждение «варианты различаются только оттенком», при
+    `--axis форма` — брак, при другой оси (приём, цвет, свет — варианты и должны быть одной формы) —
+    заметка; 0.9–0.92 — «на грани», предупреждение при любой оси.
+    """
+    lines, edges = [], {}
+    for i, (la, a) in enumerate(variants):
+        for lb, b in variants[i + 1:]:
+            found = hue_only(small[a], small[b])
+            if not found:
+                continue
+            same, changed = found
+            edges[f"{la}/{lb}"] = round(same, 3)
+            if same < EDGE_SAME:
+                continue
+            seen = f"цвет разный ({changed:.1%} пикселей), а края там же ({same:.0%})"
+            if axis and axis != FORM_AXIS:
+                lines.append(("заметка", f"{la} и {lb} ({a} и {b}) — варианты одной формы, разного тона: {seen} — "
+                                         f"по оси «{axis}» допустимо"))
+            elif same < EDGE_SURE:
+                lines.append(("предупреждение", f"на грани: {la} и {lb} ({a} и {b}) — {seen} — не знаю, та же ли "
+                                                "форма: смотреть глазом"))
+            else:
+                lines.append(("брак" if axis == FORM_AXIS else "предупреждение",
+                              f"варианты различаются только оттенком: {la} и {lb} ({a} и {b}) — {seen} — та же "
+                              "форма, подкрашенная по-разному; развести приёмами, а не числами"))
+    return lines, edges
+
+
+def aspect_lines(entries, ref_crops):
+    """Пропорции REF и варианта расходятся больше чем вдвое — вырезка REF или образец того же ракурса.
+
+    Есть `--ref-crop` — образец заведомо другого ракурса, целые кадры не сверяются, только вырезки.
+    """
+    lines = []
+    refs = [e for e in entries if e["role"] == "ref"]
+    for ref in refs:
+        for entry in entries:
+            if entry["role"] == "ref":
+                continue
+            ra = ref["image"].width / ref["image"].height
+            va = entry["image"].width / entry["image"].height
+            if not ref_crops and max(ra, va) / min(ra, va) > ASPECT_GAP:
+                lines.append(f"пропорции {ref['label']} ({ref['image'].width}×{ref['image'].height}) и {entry['label']} "
+                             f"({entry['image'].width}×{entry['image'].height}) расходятся больше чем вдвое: "
+                             "нужна вырезка образца (--ref-crop) или образец того же ракурса")
+            for name in entry["boxes"]:
+                rb, vb = crop_box(ref["image"], ref["boxes"][name]), crop_box(entry["image"], entry["boxes"][name])
+                ra = (rb[2] - rb[0]) / (rb[3] - rb[1])
+                va = (vb[2] - vb[0]) / (vb[3] - vb[1])
+                if max(ra, va) / min(ra, va) > ASPECT_GAP:
+                    lines.append(f"вырезка «{name}»: пропорции у {ref['label']} и {entry['label']} расходятся "
+                                 "больше чем вдвое — поправить --ref-crop")
+    return lines
 
 
 def parse_prev(items):
@@ -414,7 +561,7 @@ def parse_prev(items):
     return pairs
 
 
-def sanity(frames, variants, prevs):
+def sanity(frames, variants, prevs, axis):
     """--sanity: грубый брак кадров. Код 0 — «кадры в порядке», 1 — брак."""
     paths = list(dict.fromkeys(frames + [path for _, path in variants] + [frame for frame, _ in prevs]))
     if not paths:
@@ -428,15 +575,19 @@ def sanity(frames, variants, prevs):
             if share is not None and share < SAME_SHARE:
                 found.append(f"брак: {a} и {b} — варианты {la} и {lb} почти одинаковы, глазом не отличить "
                              f"(разных пикселей {share:.3%}); развести сильнее или снять ракурс, где видна разница")
+    warnings, notes = [], []
+    for kind, line in hue_only_lines(variants, small, axis)[0]:
+        {"брак": found, "предупреждение": warnings, "заметка": notes}[kind].append(f"{kind}: {line}")
     for frame, prev in prevs:
         share = changed_share(small[frame], sanity_small(prev))
         if share is not None and share < SAME_SHARE:
             found.append(f"брак: {frame} — почти как снимок прошлого круга {prev}: правка не дошла до кадра "
                          f"(разных пикселей {share:.3%}); пересобрать и переснять")
-    for line in found:
+    for line in found + warnings + notes:
         print(line)
     print(f"брак кадров: {len(found)} — владельцу не показывать, сначала починить" if found
-          else f"кадры в порядке ({len(paths)})")
+          else f"кадры в порядке ({len(paths)})" + (f"; предупреждений {len(warnings)}" if warnings else "")
+          + (f"; заметок {len(notes)}" if notes else ""))
     return 1 if found else 0
 
 
@@ -451,6 +602,11 @@ def main():
                         help="вариант: A=<png>; можно несколько")
     parser.add_argument("--crop", action="append", nargs="+", default=[], metavar="ИМЯ=x,y,w,h",
                         help="вырезка, доли кадра 0..1; можно несколько")
+    parser.add_argument("--ref-crop", action="append", nargs="+", default=[], metavar="ИМЯ=x,y,w,h",
+                        help="своя вырезка у REF под именем из --crop: образец другого ракурса")
+    parser.add_argument("--time", help="час суток кадров из паспорта («вечер», «полдень», «18:30») — в шапку и JSON")
+    parser.add_argument("--axis", help="ось выбора: форма | цвет | приём; при «форма» варианты только оттенком — код 1, "
+                                       "без оси — предупреждение, при другой оси — заметка")
     parser.add_argument("--out", help="куда сохранить лист (png)")
     parser.add_argument("--json", help="куда сохранить числа (json)")
     parser.add_argument("--only-ref", action="store_true", help="лист и числа только образцов")
@@ -462,14 +618,19 @@ def main():
 
     if Image is None:
         fail(2, "нужна Pillow: python -m pip install pillow")
+    axis = (args.axis or "").strip().lower()
     if args.sanity or args.prev:
-        if args.ref or args.crop or args.out or args.json or args.only_ref or not args.sanity:
-            fail(2, "неверные аргументы: --sanity [<png>…] [--var A=<png>…] [--prev <кадр>=<прошлый>…] — без листа")
-        return sanity(flat(args.sanity), parse_vars(flat(args.var)), parse_prev(flat(args.prev)))
+        if args.ref or args.crop or args.ref_crop or args.out or args.json or args.only_ref or args.time or not args.sanity:
+            fail(2, "неверные аргументы: --sanity [<png>…] [--var A=<png>…] [--prev <кадр>=<прошлый>…] [--axis <ось>] — без листа")
+        return sanity(flat(args.sanity), parse_vars(flat(args.var)), parse_prev(flat(args.prev)), axis)
 
     refs = flat(args.ref)
     variants = parse_vars(flat(args.var))
     crops = parse_crops(flat(args.crop))
+    ref_crops = dict(parse_crops(flat(args.ref_crop), "--ref-crop"))
+    unknown = [name for name in ref_crops if name not in dict(crops)]
+    if unknown:
+        fail(2, f"неверные аргументы: --ref-crop «{unknown[0]}» — такой вырезки нет среди --crop (имена те же)")
     if not refs:
         fail(2, "неверные аргументы: нужен хотя бы один --ref <образец>")
     if args.only_ref and variants:
@@ -491,19 +652,28 @@ def main():
         entries.append({"label": label, "role": "variant", "file": path})
     for entry in entries:
         entry["image"] = load(entry["file"])
+        entry["boxes"] = {name: (ref_crops.get(name, box) if entry["role"] == "ref" else box) for name, box in crops}
     for entry in entries:
         image = entry["image"]
         entry["stats"] = stats(image)
-        entry["crops"] = {name: stats(image.crop(crop_box(image, box))) for name, box in crops}
+        entry["crops"] = {name: stats(image.crop(crop_box(image, entry["boxes"][name]))) for name, _ in crops}
     base = entries[0]
     for entry in entries[1:]:
         entry["diff"] = diff(entry["stats"], base["stats"])
         entry["diff"]["vs"] = base["label"]
         entry["diff"]["crops"] = {name: diff(entry["crops"][name], base["crops"][name]) for name, _ in crops}
+    warnings = aspect_lines(entries, ref_crops)
+    small = {e["file"]: shrink(e["image"]) for e in entries if e["role"] == "variant"}
+    hue_lines, edge_same = hue_only_lines(variants, small, axis)
+    defects = [line for kind, line in hue_lines if kind == "брак"]
+    warnings += [line for kind, line in hue_lines if kind == "предупреждение"]
+    notes = [line for kind, line in hue_lines if kind == "заметка"]
 
+    head = " · ".join(part for part in ((f"час суток: {args.time}" if args.time else ""),
+                                        (f"ось выбора: {args.axis}" if args.axis else "")) if part)
     sheet_size = None
     if args.out:
-        sheet = build_sheet(entries, crops)
+        sheet = build_sheet(entries, crops, head)
         folder = os.path.dirname(os.path.abspath(args.out))
         os.makedirs(folder, exist_ok=True)
         try:
@@ -516,15 +686,22 @@ def main():
         "note": NOTE,
         "sheet": args.out,
         "sheet_size": sheet_size,
+        "time": args.time,
+        "axis": args.axis,
         "stats_side_px": STATS_SIDE,
         "hue_bins_deg": [i * 30 for i in range(12)],
         "hue_bin_names": list(HUE_NAMES),
         "crops": [{"name": name, "box": list(box)} for name, box in crops],
+        "ref_crops": {name: list(box) for name, box in ref_crops.items()},
         "legend": LEGEND,
         "images": [dict({"label": e["label"], "role": e["role"], "file": e["file"],
                          "size": list(e["image"].size)}, **e["stats"], crops=e["crops"])
                    for e in entries],
         "diff_from_ref": {e["label"]: e["diff"] for e in entries[1:]},
+        "edge_same": edge_same,
+        "defects": defects,
+        "warnings": warnings,
+        "notes": notes,
     }
     if args.json:
         folder = os.path.dirname(os.path.abspath(args.json))
@@ -533,7 +710,7 @@ def main():
             json.dump(report, handle, ensure_ascii=False, indent=2)
 
     if args.out:
-        print(f"лист: {args.out} ({sheet_size[0]}×{sheet_size[1]})")
+        print(f"лист: {args.out} ({sheet_size[0]}×{sheet_size[1]})" + (f" · {head}" if head else ""))
     if args.json:
         print(f"числа: {args.json}")
     for e in entries:
@@ -545,8 +722,11 @@ def main():
             line += (f"  | от {d['vs']}: яркость {signed(d['brightness'])}, контраст {signed(d['contrast'])}, "
                      f"насыщенность {signed(d['saturation'])}, тон {d['hue_hist']:.2f}")
         print(line)
+    for kind, lines in zip(KINDS, (defects, warnings, notes)):
+        for line in lines:
+            print(f"{kind}: {line}")
     print(NOTE)
-    return 0
+    return 1 if defects else 0
 
 
 if __name__ == "__main__":

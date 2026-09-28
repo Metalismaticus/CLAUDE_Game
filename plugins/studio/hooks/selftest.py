@@ -6,9 +6,15 @@
 прогоняет шаблонные tools/roadmap_check.py на пробных картах и
 tools/code_check.py на пробном репозитории (коды 0/1/2) и сверяет, что
 refs_check.py и roadmap_check.py видят в одной «Очереди» одни и те же пункты
-(копии разбора — по файлу на скрипт, стережёт их эта проверка); look_sheet.py
---sanity — на пробных кадрах (серый, чёрный, копия с шумом; без Pillow —
-пропуск с пометкой). Проект не
+(копии разбора — по файлу на скрипт, стережёт их эта проверка); refs_check.py
+— на пробных паспортах (шаблон v16: «Главное впечатление» первым, «Разрыв» —
+и перенесённый на две строки, «Чем делаем», «совпадает» только после «У нас»,
+образец для листа, наш кадр вне docs/refs/ — история, [ждёт света]);
+roadmap_check.py — и на «свет первым»; look_sheet.py --sanity — на пробных
+кадрах (серый, чёрный, копия с шумом, две подкраски одного кадра при --axis
+форма, без оси и при --axis приём) и лист с --ref-crop, --time, --axis (без
+Pillow — пропуск с пометкой); model_check.py — на пробном .glb, собранном
+здесь же (коды 0/1/2, обрезанный файл и картинка за буфером — 2). Проект не
 трогает: всё создаётся во временной папке и удаляется. Печатает таблицу и
 итог; код 0 — всё верно, 1 — нет. Зовут /setup — полностью и /board — с
 --quick: без пробных репозиториев code_check (секунды вместо ~40 с).
@@ -28,6 +34,8 @@ TOOLS = os.path.join(HERE, "..", "skills", "setup", "templates", "tools")
 ROADMAP_CHECK = os.path.join(TOOLS, "roadmap_check.py")
 CODE_CHECK = os.path.join(TOOLS, "code_check.py")
 LOOK_SHEET = os.path.join(TOOLS, "look_sheet.py")
+REFS_CHECK = os.path.join(TOOLS, "refs_check.py")
+MODEL_CHECK = os.path.join(TOOLS, "model_check.py")
 
 MAP_CONCEPT = """# Концепция
 
@@ -164,6 +172,163 @@ QUEUE = """# Дорожная карта
 
 ### Подробности ближайших пунктов
 """
+
+
+PASSPORT = """# Образец: {title}
+Состояние: {state}
+Вид работы: вид
+{how}
+
+## Составляющие
+| Составляющая | Как у образца | Доказательство | Важно владельцу | Как сделано у образца |
+|---|---|---|---|---|
+| Силуэт | {like} | видно | да | У нас: {ours} |
+
+## Разрыв
+{gap}
+
+## Кадры
+| Имя кадра | Камера · seed · время суток · погода | Образец для листа | Зачем |
+|---|---|---|---|
+| `single` | луг · 1 · вечер · ясно | `{sample}` | силуэт |
+
+## Проверяемые утверждения
+{claims}
+"""
+FULL = {"state": "подтверждён владельцем 2026-09-28", "how": "Чем делаем: код — решение 2026-09-28", "like": "ярусы",
+        "ours": "приём: ramp по ATTENUATION · shaders/spruce.gdshader", "gap": "- силуэт: у нас шары / у образца ярусы",
+        "sample": "docs/refs/_concept/target-trees-1.png", "claims": "1. Главное впечатление: ель ярусами, мягкая масса"}
+LIGHT_QUEUE = """# Дорожная карта
+
+## Очередь
+
+- **[можно] [этап 1] [вид] Свет и дымка.** Образец — `docs/refs/light.md`.
+- **[{mark}] [этап 1] [вид] Крона ели.** Образец — `docs/refs/trees.md`.
+"""
+LIGHT = "# Образец: свет и атмосфера\nСостояние: {state}\nВид работы: вид\n"
+
+
+def passport(title, **fields):
+    return PASSPORT.format(title=title, **dict(FULL, **fields))
+
+
+def check_refs(results, tmp):
+    """Шаблонный refs_check.py: паспорт вида по шаблону v16 и «свет первым»."""
+    def refs(name, expect, needle, trees=None, light="принят кадр 2026-09-28", mark="можно"):
+        root = os.path.join(tmp, "проект образцов", name)
+        write(os.path.join(root, "docs", "ROADMAP.md"), LIGHT_QUEUE.format(mark=mark))
+        write(os.path.join(root, "docs", "refs", "trees.md"), passport("ель", **(trees or {})))
+        if light:
+            write(os.path.join(root, "docs", "refs", "light.md"), passport("свет и атмосфера", state=light))
+        for rel in ("docs/refs/_concept/target-trees-1.png", "docs/refs/_concept/target-2026-09-26-1.webp"):
+            write(os.path.join(root, rel), "png")
+        p = subprocess.run([sys.executable, "-X", "utf8", REFS_CHECK, "--root", root], capture_output=True, timeout=30)
+        out = p.stdout.decode("utf-8", "replace")
+        ok = p.returncode == expect and needle in out
+        results.append(("refs_check", name, f"код {expect}", f"код {p.returncode}", ok))
+
+    refs("полные паспорта, свет принят", 0, "всё на месте")
+    refs("без «Главного впечатления»", 1, "нет «Главного впечатления»", {"claims": "1. ярусы видны"})
+    refs("«совпадает» без принятого кадра", 1, "«совпадает» в «Составляющих»", {"ours": "гибрид ядро+кайма — совпадает"})
+    refs("«совпадает» при принятом кадре", 0, "всё на месте",
+         {"ours": "гибрид — совпадает", "state": "принят кадр 2026-09-28"})
+    refs("образец для листа — целый концепт-кадр", 1, "целый концепт-кадр",
+         {"sample": "docs/refs/_concept/target-2026-09-26-1.webp"})
+    refs("без «Разрыва»", 1, "нет «Разрыва»", {"gap": "- <составляющая>: у нас <что видно> / у образца <что видно>"})
+    refs("«Разрыв» перенесён на две строки", 0, "всё на месте",
+         {"gap": "- силуэт: у нас шары, клоки хвои ядром плюс кайма, освещено как\n  объём / у образца ярусы"})
+    refs("наш кадр «Разрыва» вне docs refs — история", 0, "история",
+         {"gap": "Снято 2026-09-28: наш кадр `shots/single.png` против образца `docs/refs/_concept/target-trees-1.png`.\n"
+                 "- силуэт: у нас шары / у образца ярусы"})
+    refs("«совпадает» в «Как у образца» при «У нас — приём»", 0, "всё на месте",
+         {"like": "дальние ели — силуэты в дымке, тон совпадает с ближними"})
+    refs("«Главное впечатление» не первое", 1, "не первое",
+         {"claims": "1. ярусы видны\n2. Главное впечатление: ель ярусами, мягкая масса"})
+    refs("без «Чем делаем»", 1, "нет «Чем делаем»", {"how": ""})
+    refs("свет не принят, ель [можно]", 1, "поставить [ждёт света]", light="подтверждён владельцем 2026-09-28")
+    refs("свет не принят, ель [ждёт света]", 0, "всё на месте", light="подтверждён владельцем 2026-09-28",
+         mark="ждёт света")
+    refs("темы света нет", 0, "темы света нет", light="")
+
+
+def glb_box(size=(1.0, 2.0, 1.0), offset=(0.0, 0.0, 0.0), rotation=None, image_uri=None, texture_px=0, gltf=False,
+            image_overrun=False):
+    """Пробная коробка glTF 2.0: 12 треугольников; опора внизу по центру, если offset нулевой; текстура — PNG внутри;
+    image_overrun — bufferView картинки объявлен длиннее буфера (как у обрезанного файла с целым заголовком)."""
+    import base64
+    import struct
+    import zlib
+    w, h, d = size
+    corners = [(x * w - w / 2 + offset[0], y * h + offset[1], z * d - d / 2 + offset[2])
+               for x in (0, 1) for y in (0, 1) for z in (0, 1)]
+    faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    indices = [i for a, b, c, e in faces for i in (a, b, c, a, c, e)]
+    pos = b"".join(struct.pack("<fff", *p) for p in corners)
+    idx = b"".join(struct.pack("<H", i) for i in indices)
+    blob = pos + idx
+    views = [{"buffer": 0, "byteOffset": 0, "byteLength": len(pos)},
+             {"buffer": 0, "byteOffset": len(pos), "byteLength": len(idx)}]
+    images = [{"uri": image_uri}] if image_uri else []
+    if texture_px:
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+        raw = zlib.compress(b"".join(b"\x00" + b"\x80\x80\x80" * texture_px for _ in range(texture_px)))
+        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", texture_px, texture_px, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", raw) + chunk(b"IEND", b""))
+        blob += b"\x00" * (-len(blob) % 4)
+        views.append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(png) + (1000 if image_overrun else 0)})
+        blob += png
+        images = [{"bufferView": 2, "mimeType": "image/png", "name": "atlas"}]
+    node = {"mesh": 0, "name": "box"}
+    if rotation:
+        node["rotation"] = rotation
+    doc = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [node],
+           "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
+           "accessors": [{"bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3"},
+                         {"bufferView": 1, "componentType": 5123, "count": len(indices), "type": "SCALAR"}],
+           "bufferViews": views, "buffers": [{"byteLength": len(blob)}], "images": images}
+    if gltf:
+        doc["buffers"][0]["uri"] = "data:application/octet-stream;base64," + base64.b64encode(blob).decode()
+        return json.dumps(doc).encode("utf-8")
+    js = json.dumps(doc).encode("utf-8")
+    js += b" " * (-len(js) % 4)
+    blob += b"\x00" * (-len(blob) % 4)
+    body = struct.pack("<II", len(js), 0x4E4F534A) + js + struct.pack("<II", len(blob), 0x004E4942) + blob
+    return struct.pack("<III", 0x46546C67, 2, 12 + len(body)) + body
+
+
+def check_model(results, tmp):
+    """Шаблонный model_check.py: коды 0/1/2 на пробных .glb и .gltf."""
+    folder = os.path.join(tmp, "модели с пробелом")
+    os.makedirs(folder, exist_ok=True)
+
+    def model(name, expect, needle, data, *args, ext="glb"):
+        path = os.path.join(folder, f"{name}.{ext}")
+        if data is not None:
+            with open(path, "wb") as handle:
+                handle.write(data)
+        p = subprocess.run([sys.executable, "-X", "utf8", MODEL_CHECK, path, *args], capture_output=True, timeout=30)
+        out = p.stdout.decode("utf-8", "replace")
+        ok = p.returncode == expect and needle in out
+        results.append(("model_check", name, f"код {expect}", f"код {p.returncode}", ok))
+
+    model("коробка 1×2×1, текстура внутри", 0, "годен: треугольников 12", glb_box(texture_px=8),
+          "--budget", "100", "--height", "2", "--texture-max", "1024")
+    model("сверх бюджета", 1, "треугольников 12 при бюджете 10", glb_box(), "--budget", "10")
+    model("опора не внизу", 1, "опорная точка не внизу", glb_box(offset=(0, 1, 0)))
+    model("опора не по центру", 1, "не по центру", glb_box(offset=(0.5, 0, 0)))
+    model("поворот в узле", 1, "поворот или масштаб", glb_box(rotation=[0, 0.7071, 0, 0.7071]))
+    model("текстура снаружи glb", 1, "текстура снаружи", glb_box(image_uri="atlas.png"))
+    model("не метры", 1, "не метры", glb_box(size=(100, 2000, 100)))
+    model("gltf с data-буфером, высота не та", 1, "высота 2.00 м при заказанных 4", glb_box(gltf=True),
+          "--height", "4", ext="gltf")
+    model("текстура больше предела", 1, "больше 512", glb_box(texture_px=1024), "--texture-max", "512")
+    whole = glb_box(texture_px=64)
+    model("glb обрезан на 60 %", 2, "обрезан", whole[:len(whole) * 6 // 10])
+    model("glb без последних 4 байт", 2, "обрезан", whole[:-4])
+    model("bufferView картинки за буфером", 2, "выходит за буфер", glb_box(texture_px=8, image_overrun=True))
+    model("не glTF", 2, "не умею", b"not a model")
+    model("нет файла", 2, "нет файла", None)
 
 
 def module(name):
@@ -696,6 +861,14 @@ def check_roadmap(results, tmp):
     roadmap("незамеченный GAME_CONCEPT.md", 1, "ни одной системы",
             extra={"docs/GAME_CONCEPT.md": "# Замысел игры\n\n## Мир\n\nСевер и ели.\n"})
     roadmap("нет «Этапов»", 2, "этапов нет", "# Дорожная карта\n\n## Очередь\n\n- **[можно] Пункт.**\n")
+    look = MAP.replace("- **[можно] [код] [этап 1] Рубка ели.**",
+                       "- **[можно] [код] [этап 1] Рубка ели.**\n- **[можно] [этап 1] [вид] Крона ели.** "
+                       "Образец — `docs/refs/trees.md`.")
+    roadmap("[вид] [можно] при непринятом свете", 1, "[ждёт света]", look,
+            extra={"docs/refs/light.md": LIGHT.format(state="подтверждён владельцем 2026-09-28")})
+    roadmap("[вид] [можно] при принятом свете", 0, "находок 0", look,
+            extra={"docs/refs/light.md": LIGHT.format(state="принят кадр 2026-09-28")})
+    roadmap("[вид] [можно] без темы света", 0, "находок 0", look)
 
 
 def sanity_frames(folder):
@@ -711,7 +884,10 @@ def sanity_frames(folder):
     noisy = Image.merge("RGB", [ImageChops.add(c, noise, 1, -128) for c in scene.split()])
     other = scene.transpose(Image.FLIP_LEFT_RIGHT)
     ImageDraw.Draw(other).rectangle((200, 60, 440, 300), fill=(200, 60, 40))
-    names = {"сцена": scene, "шум": noisy, "другая": other,
+    r, g, b = scene.split()  # две подкраски одного кадра: та же форма, разный цвет
+    warm = Image.merge("RGB", [r.point(lambda v: min(255, v + 30)), g, b])
+    cold = Image.merge("RGB", [r, g, b.point(lambda v: min(255, v + 30))])
+    names = {"сцена": scene, "шум": noisy, "другая": other, "тёплая": warm, "холодная": cold,
              "серое": Image.new("RGB", scene.size, (77, 77, 77)), "чёрное": Image.new("RGB", scene.size)}
     for name, image in names.items():
         image.save(os.path.join(folder, name + ".png"))
@@ -734,18 +910,44 @@ def check_sanity(results, tmp):
              ("варианты — копия с шумом", 1, "почти одинаковы", ["--var", "A=" + f["сцена"], "--var", "B=" + f["шум"]]),
              ("как прошлый круг", 1, "правка не дошла", ["--prev", f["шум"] + "=" + f["сцена"]]),
              ("прошлый круг другой", 0, "кадры в порядке", ["--prev", f["другая"] + "=" + f["сцена"]]),
-             ("--prev без «=»", 2, "", [f["сцена"], "--prev", f["шум"]]))
-    for name, expect, needle, extra in cases:
+             ("--prev без «=»", 2, "", [f["сцена"], "--prev", f["шум"]]),
+             ("две подкраски одного кадра, --axis форма", 1, "только оттенком",
+              ["--var", "A=" + f["тёплая"], "--var", "B=" + f["холодная"], "--axis", "форма"]),
+             ("две подкраски без оси — предупреждение", 0, "только оттенком",
+              ["--var", "A=" + f["тёплая"], "--var", "B=" + f["холодная"]]),
+             ("две подкраски, --axis приём — заметка, не «только оттенком»", 0, "кадры в порядке",
+              ["--var", "A=" + f["тёплая"], "--var", "B=" + f["холодная"], "--axis", "приём"], "только оттенком"),
+             ("разные кадры, --axis форма", 0, "кадры в порядке",
+              ["--var", "A=" + f["сцена"], "--var", "B=" + f["другая"], "--axis", "форма"]))
+    for name, expect, needle, extra, *absent in cases:
         p = subprocess.run([sys.executable, "-X", "utf8", LOOK_SHEET, "--sanity", *extra], capture_output=True, timeout=60)
         out = p.stdout.decode("utf-8", "replace")
-        ok = p.returncode == expect and needle in out
+        ok = p.returncode == expect and needle in out and not any(a in out for a in absent)
         results.append(("look_sheet", "--sanity: " + name, f"код {expect}", f"код {p.returncode}", ok))
+    folder = os.path.dirname(f["сцена"])
+    sheet, data = os.path.join(folder, "лист.png"), os.path.join(folder, "лист.json")
+    p = subprocess.run([sys.executable, "-X", "utf8", LOOK_SHEET, "--ref", f["сцена"], "--var", "A=" + f["другая"],
+                        "--crop", "низ=0.1,0.5,0.8,0.4", "--ref-crop", "низ=0.2,0.4,0.6,0.5", "--time", "вечер",
+                        "--axis", "форма", "--out", sheet, "--json", data], capture_output=True, timeout=60)
+    try:
+        with open(data, encoding="utf-8") as handle:
+            report = json.load(handle)
+        ok = (p.returncode == 0 and report["time"] == "вечер" and report["axis"] == "форма"
+              and report["ref_crops"] == {"низ": [0.2, 0.4, 0.6, 0.5]} and not report["warnings"] and os.path.isfile(sheet))
+    except (OSError, ValueError, KeyError):
+        ok = False
+    results.append(("look_sheet", "лист: --ref-crop, --time и --axis в JSON", "код 0", f"код {p.returncode}", ok))
+    p = subprocess.run([sys.executable, "-X", "utf8", LOOK_SHEET, "--ref", f["сцена"], "--var", "A=" + f["другая"],
+                        "--ref-crop", "верх=0,0,1,0.3", "--out", sheet], capture_output=True, timeout=60)
+    results.append(("look_sheet", "лист: --ref-crop без такой --crop", "код 2", f"код {p.returncode}", p.returncode == 2))
 
 
 GROUPS = (("хуки работают", "хуки НЕ работают", lambda r: r[0] in ("guard_git", "session_context", "hooks.json")),
           ("проверка карты", "проверка карты НЕ работает", lambda r: r[0] == "roadmap_check"),
           ("проверка кода", "проверка кода НЕ работает", lambda r: r[0] in ("code_check", "паритет очереди")),
-          ("проверка кадров", "проверка кадров НЕ работает", lambda r: r[0] == "look_sheet"))
+          ("проверка кадров", "проверка кадров НЕ работает", lambda r: r[0] == "look_sheet"),
+          ("проверка образцов", "проверка образцов НЕ работает", lambda r: r[0] == "refs_check"),
+          ("проверка моделей", "проверка моделей НЕ работает", lambda r: r[0] == "model_check"))
 
 
 def verdict(results, quick=False):
@@ -792,7 +994,9 @@ def main():
         if not quick:
             check_code(results, tmp)
         check_parity(results, tmp)
+        check_refs(results, tmp)
         check_sanity(results, tmp)
+        check_model(results, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return verdict(results, quick)
