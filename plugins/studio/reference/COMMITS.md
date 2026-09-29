@@ -106,7 +106,6 @@ For batch item 3, "Mining" in the queue.
 | партия снята | `Batch: Take N items from the queue` | `Партия: снято N пунктов из очереди` |
 | волна | `Batch: Start wave W with items N, M` | `Партия: волна W — пункты N, M` |
 | пункт готов | `Batch: Mark item N ready for review` | `Партия: пункт N готов к проверке` |
-| ждёт выбора | `Batch: Hold item N for the owner's choice` | `Партия: пункт N ждёт выбора` |
 | вопрос — в сценарист | `Batch: Hold item N for the owner's answer` | `Партия: пункт N ждёт ответа` |
 | выбор записан | `Batch: Record choice K for item N` | `Партия: пункт N — выбор K` |
 | итог запуска | `Batch: Record run results` | `Партия: итог запуска` |

@@ -76,7 +76,7 @@ def context(rows):
     if queued:
         parts.append(f"ждут очереди: {', '.join(queued)}")
     if choice:
-        parts.append(f"ждут выбора: {', '.join(choice)} — /start покажет лист")
+        parts.append(f"ждут выбора: {', '.join(choice)} — /start выберет сам")
     return "\n".join([
         f"studio: идёт партия — {len(rows)} {plural(len(rows))} ({', '.join(parts)}).",
         "Чат разработки (где звали /start) продолжает по `docs/BATCH.md` и "
