@@ -34,7 +34,11 @@ JSON: у каждой картинки и вырезки — средняя яр
 пропорции REF и варианта расходятся больше чем вдвое (нужна вырезка REF или
 образец того же ракурса), «только оттенком» без оси, совпадение краёв «на
 грани»; `notes` — к сведению: при другой оси варианты одной формы, разного
-тона; `edge_same` — совпадение карты краёв по парам вариантов. Числа — грубая
+тона; `edge_same` — совпадение карты краёв по парам вариантов. `fidelity` —
+кадр против первого образца **без цвета**: композиция (корреляция карт краёв
+целых кадров), световые пятна (разница средней яркости сетки 3×3) и
+насыщенность деталями (разница плотности краёв) — грубая ориентировка на
+вопрос «тот же строй кадра?», не мера похожести. Числа — грубая
 ориентировка по свету и цвету, не мера похожести: решает взгляд на лист
 («Вижу:», попарно в двух порядках), принимает владелец.
 
@@ -95,6 +99,9 @@ LEGEND = {
                 "«только оттенком» без оси, совпадение краёв на грани — судит координатор глазом",
     "notes": "к сведению: при оси приём, цвет или свет варианты одной формы, разного тона — допустимо",
     "edge_same": "совпадение карты краёв по парам вариантов 0..1 там, где цвет разный: ≥ 0.92 — та же форма, 0.9–0.92 — на грани",
+    "fidelity": "кадр против первого образца без цвета: layout_match — корреляция карт краёв целых кадров (строй кадра, не палитра), "
+                "light_pool_gap — средняя разница яркости сетки 3×3 (световые пятна), detail_gap — разница плотности краёв; "
+                "грубая ориентировка, не мера похожести",
 }
 
 BG = (38, 38, 38)
@@ -460,6 +467,51 @@ def pixels(image):
     return list(getattr(image, "get_flattened_data", image.getdata)())
 
 
+def grid_means(gray, n=3):
+    """Средняя яркость по сетке n×n — световые пятна без цвета."""
+    w, h = gray.size
+    out = []
+    for row in range(n):
+        for col in range(n):
+            box = (col * w // n, row * h // n, (col + 1) * w // n, (row + 1) * h // n)
+            out.append(ImageStat.Stat(gray.crop(box)).mean[0] / 255)
+    return out
+
+
+def edge_map(image):
+    return image.convert("L").filter(ImageFilter.FIND_EDGES).filter(ImageFilter.GaussianBlur(1))
+
+
+def correlation(xs, ys):
+    n = len(xs)
+    if not n:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    if not sxx or not syy:
+        return None
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sxx * syy) ** 0.5
+
+
+def fidelity(ref_small, var_small):
+    """(композиция, свет-пятна, детализация) кадра против образца, без цвета.
+
+    Композиция — корреляция карт краёв целых кадров: строение кадра, не палитра.
+    Свет-пятна — средняя разница яркости сетки 3×3. Детализация — разница
+    плотности краёв. Грубая ориентировка на вопрос «тот же строй кадра?».
+    """
+    if ref_small.size != var_small.size:
+        var_small = var_small.resize(ref_small.size, RESAMPLE_BOX)
+    ref_gray, var_gray = ref_small.convert("L"), var_small.convert("L")
+    ref_edges, var_edges = edge_map(ref_small), edge_map(var_small)
+    layout = correlation(pixels(ref_edges), pixels(var_edges))
+    pools = sum(abs(a - b) for a, b in zip(grid_means(ref_gray), grid_means(var_gray))) / 9
+    detail = abs(ImageStat.Stat(ref_edges).mean[0] - ImageStat.Stat(var_edges).mean[0]) / 255
+    return (round(layout, 3) if layout is not None else None,
+            round(pools, 3), round(detail, 3))
+
+
 def hue_only(a, b):
     """(совпадение краёв там, где цвет разный, доля разных пикселей) или None — не сравнить.
 
@@ -665,6 +717,13 @@ def main():
     warnings = aspect_lines(entries, ref_crops)
     small = {e["file"]: shrink(e["image"]) for e in entries if e["role"] == "variant"}
     hue_lines, edge_same = hue_only_lines(variants, small, axis)
+    ref_small = shrink(entries[0]["image"])
+    fidelity_map = {}
+    for e in entries:
+        if e["role"] != "variant":
+            continue
+        layout, pools, detail = fidelity(ref_small, shrink(e["image"]))
+        fidelity_map[e["label"]] = {"layout_match": layout, "light_pool_gap": pools, "detail_gap": detail}
     defects = [line for kind, line in hue_lines if kind == "брак"]
     warnings += [line for kind, line in hue_lines if kind == "предупреждение"]
     notes = [line for kind, line in hue_lines if kind == "заметка"]
@@ -699,6 +758,7 @@ def main():
                    for e in entries],
         "diff_from_ref": {e["label"]: e["diff"] for e in entries[1:]},
         "edge_same": edge_same,
+        "fidelity": fidelity_map,
         "defects": defects,
         "warnings": warnings,
         "notes": notes,
@@ -721,6 +781,10 @@ def main():
             d = e["diff"]
             line += (f"  | от {d['vs']}: яркость {signed(d['brightness'])}, контраст {signed(d['contrast'])}, "
                      f"насыщенность {signed(d['saturation'])}, тон {d['hue_hist']:.2f}")
+        f = fidelity_map.get(e["label"])
+        if f and f["layout_match"] is not None:
+            line += (f"  | строй кадра от REF: композиция {f['layout_match']:.2f}, "
+                     f"свет-пятна {f['light_pool_gap']:.2f}, деталь ±{f['detail_gap']:.2f}")
         print(line)
     for kind, lines in zip(KINDS, (defects, warnings, notes)):
         for line in lines:

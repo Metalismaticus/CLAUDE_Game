@@ -105,9 +105,14 @@
    техническое — без окна. Поднять метку до метки шаблона.
 5. Недостающие файлы — создать по шаблонам, показав список: `docs/`,
    `docs/refs/INDEX.md`, `tools/roadmap_check.py`, `tools/refs_check.py`,
-   `tools/look_sheet.py` и `docs/refs/TECHNIQUES.md` («Свои приёмы» —
-   отдельный файл рядом с библиотекой плагина, слияния нет; если мир судят
-   глазом), `tools/perf_ref.json` (мир в реальном времени),
+   `tools/look_sheet.py`, `tools/blind_pair.py` и `docs/refs/TECHNIQUES.md`
+   («Свои приёмы» — отдельный файл рядом с библиотекой плагина, слияния
+   нет; если мир судят глазом), `tools/studio_ops.py`, `tools/run_check.py`,
+   `tools/slot_pool.py`, `tools/batch_check.py`, `tools/ops_report.py` и
+   `tools/check_plan.json` (план — заполнить из таблицы «Команды проверки»
+   по `testing.md`, «План проверок и пул слотов»; вопрос о промежуточных
+   сборках — в окно п. 3; в `docs/TESTING.md` вставить раздел «Режимы и
+   окружение» из шаблона), `tools/perf_ref.json` (мир в реальном времени),
    `tools/asset_check.py` и `docs/orders/ledger.md` (есть `docs/orders/` или
    это игра), `tools/model_check.py` (3D: есть `docs/orders/model3d.md` или
    модели `.glb`/`.gltf` в проекте; 3D без вида `model3d` — в отчёт «завести
@@ -115,9 +120,10 @@
    (п. 7); в `docs/DECISIONS.md` нет раздела «Прогноз» — вставить его из
    шаблона.
    Скрипты `tools/`, которые есть, но отличаются от шаблонных, — заменить
-   шаблонными (в том же списке); `tools/perf_ref.json` — не заменять:
-   недостающие строки шаблона дописать, строки проекта (калибровка,
-   добавленные машины, `levels`) оставить. Здоровье кода:
+   шаблонными (в том же списке); `tools/perf_ref.json` и
+   `tools/check_plan.json` — не заменять: недостающие ключи шаблона
+   дописать, записи проекта (калибровка, добавленные машины, `levels`;
+   `checks`, резерв, предел слотов) оставить. Здоровье кода:
    `tools/code_check.py` — как соседи, `tools/load_all.gd` — у Godot;
    `tools/code_baseline.json` **никогда не заменять**: нет — `python -X utf8
    tools/code_check.py --baseline`, есть — `--baseline --add-new-metrics`,

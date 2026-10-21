@@ -30,6 +30,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUARD = os.path.join(HERE, "guard_git.py")
 CONTEXT = os.path.join(HERE, "session_context.py")
+LEDGER = os.path.join(HERE, "usage_ledger.py")
 TOOLS = os.path.join(HERE, "..", "skills", "setup", "templates", "tools")
 ROADMAP_CHECK = os.path.join(TOOLS, "roadmap_check.py")
 CODE_CHECK = os.path.join(TOOLS, "code_check.py")
@@ -145,13 +146,63 @@ def check_config(results):
                if "Bash" in e["matcher"] and "PowerShell" in e["matcher"]]
         start = [h["command"] for e in hooks["SessionStart"] for h in e["hooks"]
                  if all(s in e["matcher"] for s in ("startup", "resume", "clear", "compact"))]
+        ledger = [h["command"] for name in ("SubagentStop", "Stop") for e in hooks[name] for h in e["hooks"]]
         ok = (any("python -X utf8" in c and "hooks/guard_git.py" in c for c in pre)
               and any("python -X utf8" in c and "hooks/session_context.py" in c for c in start)
-              and os.path.isfile(GUARD) and os.path.isfile(CONTEXT))
+              and len([c for c in ledger if "python -X utf8" in c and "hooks/usage_ledger.py" in c]) == 2
+              and os.path.isfile(GUARD) and os.path.isfile(CONTEXT) and os.path.isfile(LEDGER))
         got = "подключены" if ok else "не так"
     except Exception as e:  # noqa: BLE001 — любая поломка файла = провал
         ok, got = False, f"ошибка: {e}"
-    results.append(("hooks.json", "оба хука, python -X utf8", "подключены", got, ok))
+    results.append(("hooks.json", "три хука, python -X utf8", "подключены", got, ok))
+
+
+def check_usage(results, tmp, project):
+    """usage_ledger: суммы токенов по расшифровке, без повторов, с номером пункта; вне проекта — молчит."""
+    folder = os.path.join(tmp, "расшифровки")
+    agent = os.path.join(folder, "agent-1.jsonl")
+    lines = [{"type": "user", "message": {"role": "user", "content": "Пункт 3 партии из `docs/BATCH.md`"}},
+             {"type": "assistant", "uuid": "u1", "message": {"id": "msg_1", "model": "claude-test",
+              "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100,
+                        "cache_creation_input_tokens": 7}}},
+             {"type": "assistant", "uuid": "u2", "message": {"id": "msg_1", "model": "claude-test",
+              "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100,
+                        "cache_creation_input_tokens": 7}}},
+             {"type": "assistant", "uuid": "u3", "message": {"id": "msg_2", "model": "claude-test",
+              "usage": {"input_tokens": 1, "output_tokens": 2}}}]
+    write(agent, "".join(json.dumps(l, ensure_ascii=False) + "\n" for l in lines))
+    event = {"hook_event_name": "SubagentStop", "session_id": "s1", "agent_id": "a1",
+             "agent_type": "executor", "agent_transcript_path": agent, "cwd": project}
+    log = os.path.join(tmp, "конструктор игр.wt", "usage", "studio-usage.jsonl")
+
+    def rows():
+        try:
+            with open(log, encoding="utf-8") as f:
+                return [json.loads(l) for l in f if l.strip()]
+        except OSError:
+            return []
+
+    code, _, err = run(LEDGER, event)
+    got = rows()
+    ok = (code == 0 and len(got) == 1 and got[0].get("agent") == "executor" and got[0].get("item") == "p3"
+          and got[0].get("in") == 11 and got[0].get("out") == 7 and got[0].get("cacheRead") == 100
+          and got[0].get("cacheWrite") == 7 and got[0].get("sid") == "s1")
+    results.append(("usage_ledger", "субагент: суммы без повтора id, пункт p3", "1 строка",
+                    f"код {code}, строк {len(got)}" + (f": {got[0]}" if got and not ok else "") + (err and f" · {err.strip()[:80]}" or ""), ok))
+    code, _, _ = run(LEDGER, event)
+    ok = code == 0 and len(rows()) == 1
+    results.append(("usage_ledger", "тот же файл второй раз", "ничего нового", f"строк {len(rows())}", ok))
+    with open(agent, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "uuid": "u4", "message": {"id": "msg_3", "usage": {"input_tokens": 4, "output_tokens": 4}}}) + "\n")
+    code, _, _ = run(LEDGER, {**event, "hook_event_name": "Stop", "transcript_path": agent})
+    got = rows()
+    ok = code == 0 and len(got) == 2 and got[1].get("agent") == "chat" and got[1].get("in") == 4
+    results.append(("usage_ledger", "дописанная расшифровка, событие Stop", "ещё 1 строка, agent chat",
+                    f"строк {len(got)}" + (f": {got[-1]}" if got and not ok else ""), ok))
+    plain = os.path.join(tmp, "обычная папка")
+    code, out, _ = run(LEDGER, {**event, "cwd": plain, "agent_transcript_path": agent})
+    ok = code == 0 and out == "" and len(rows()) == 2
+    results.append(("usage_ledger", "вне проекта studio", "молчит", f"код {code}, строк {len(rows())}", ok))
 
 
 QUEUE = """# Дорожная карта
@@ -942,7 +993,7 @@ def check_sanity(results, tmp):
     results.append(("look_sheet", "лист: --ref-crop без такой --crop", "код 2", f"код {p.returncode}", p.returncode == 2))
 
 
-GROUPS = (("хуки работают", "хуки НЕ работают", lambda r: r[0] in ("guard_git", "session_context", "hooks.json")),
+GROUPS = (("хуки работают", "хуки НЕ работают", lambda r: r[0] in ("guard_git", "session_context", "hooks.json", "usage_ledger")),
           ("проверка карты", "проверка карты НЕ работает", lambda r: r[0] == "roadmap_check"),
           ("проверка кода", "проверка кода НЕ работает", lambda r: r[0] in ("code_check", "паритет очереди")),
           ("проверка кадров", "проверка кадров НЕ работает", lambda r: r[0] == "look_sheet"),
@@ -990,6 +1041,7 @@ def main():
         check_guard(results, project, copy, plain)
         check_context(results, tmp, project, idle, plain)
         check_config(results)
+        check_usage(results, tmp, project)
         check_roadmap(results, tmp)
         if not quick:
             check_code(results, tmp)

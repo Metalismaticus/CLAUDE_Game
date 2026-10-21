@@ -42,7 +42,8 @@
 | `docs/orders/<вид>.md` из `_kind.md` | другие названные виды: тексты, локализация, страница магазина |
 | `docs/orders/ledger.md` | есть виды заказов или это игра: журнал происхождения ассетов для `/release` |
 | `docs/prompts/`, `docs/specs/` | пустые папки с `.gitkeep` |
-| `tools/look_sheet.py`, `tools/refs_check.py` | есть `docs/refs/` |
+| `tools/studio_ops.py`, `tools/run_check.py`, `tools/slot_pool.py`, `tools/batch_check.py`, `tools/ops_report.py`, `tools/check_plan.json` | всегда; план заполнить по `testing.md`, «План проверок и пул слотов» |
+| `tools/look_sheet.py`, `tools/refs_check.py`, `tools/blind_pair.py` | есть `docs/refs/` |
 | `docs/refs/TECHNIQUES.md` | есть `docs/refs/` и мир судят глазом: «Свои приёмы» рядом с библиотекой плагина |
 | `tools/model_check.py` | 3D: есть `model3d` или модели `.glb`/`.gltf` |
 | `tools/perf_ref.json` | мир в реальном времени (игра, стенд, просмотрщик): таблица железа для «Бюджета производительности» и автоподбора «Настроек графики» |
