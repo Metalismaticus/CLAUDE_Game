@@ -52,6 +52,7 @@
 | `tools/gate_check.py` | есть проверки или код: инвентарь правок проверок и эталонов для `reviewer` |
 | `tools/code_check.py`, `tools/code_baseline.json` | есть код (почти всегда); базу пишет `python -X utf8 tools/code_check.py --baseline` в шаге 12 — после создания репозитория, до первого коммита |
 | `tools/load_all.gd` | Godot: грузит каждый скрипт — ошибки типов видны без запуска игры |
+| `.mcp.json` | владелец сказал «Подключить» графу кода (`env.md`, 4а): сервер `code-review-graph`; `.code-review-graph/` — в `.gitignore` |
 | `.gitignore` | нет — под стек: кэш движка (`.godot/` …), папка сборок из «Выпуска»; репозиторий публичный — ещё `docs/refs/**/ref-*` и поимённо снимки владельца из чужих игр |
 | `.gitattributes` | нет — `* text=auto eol=lf`; бинарные типы стека `binary` (`*.png binary` …); есть git-lfs и владелец не против — в LFS glb, fbx, blend, psd, wav, ogg, листы `docs/refs/**/sheet-*.png`, а png больше 1 МБ — поимённо. У владельца `core.autocrlf=true`: без файла diff шумит |
 

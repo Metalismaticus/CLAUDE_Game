@@ -13,6 +13,8 @@ additionalContext (не больше 6 строк): сколько пункто�
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 
@@ -116,6 +118,28 @@ def outdated(project_root):
             "плагина — вызовите /setup обновить (пара минут)». Сам не запускай.")
 
 
+def graph_update(root):
+    """Проект подключил граф кода (`.mcp.json` с code-review-graph) и команда
+    есть — обновить граф в фоне, не дожидаясь: сессия стартует сразу. Ничего
+    не печатает; любая ошибка — тишина (граф — удобство, не условие)."""
+    try:
+        with open(os.path.join(root, ".mcp.json"), encoding="utf-8-sig") as f:
+            if "code-review-graph" not in (json.load(f).get("mcpServers") or {}):
+                return
+    except (OSError, ValueError, AttributeError):
+        return
+    exe = shutil.which("code-review-graph")
+    if not exe or os.environ.get("STUDIO_HOOK_SELFTEST"):
+        return
+    try:
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([exe, "update", "--skip-flows", "--repo", root],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+    except OSError:
+        pass
+
+
 def main():
     try:
         event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
@@ -124,8 +148,10 @@ def main():
     batch = find_batch(event.get("cwd") or os.getcwd())
     if not batch:
         return 0
+    root = os.path.dirname(os.path.dirname(batch))
+    graph_update(root)
     with open(batch, encoding="utf-8", errors="replace") as f:
-        lines = [outdated(os.path.dirname(os.path.dirname(batch))),
+        lines = [outdated(root),
                  context(batch_rows(f.read()))]
     text = "\n".join(line for line in lines if line)
     if text:
