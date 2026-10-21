@@ -533,8 +533,13 @@ CHANGELOG.md
 docs/WHY.md    почему процесс устроен так — прочитать, прежде чем убирать правило
 plugins/studio/
   .claude-plugin/plugin.json
-  agents/      executor, reviewer, designer, scout, assets, reference
-  skills/      по папке на команду; setup/steps — шаги нового проекта,
+  agents/      executor, reviewer, designer, scout, assets, reference —
+               короткие: вход, запреты, формат итога и таблица «когда —
+               какую главу прочитать»; главы — reference/executor/,
+               reference/reviewer/
+  skills/      по папке на команду; у /start, /idea, /done — короткий
+               SKILL.md с таблицей глав и steps/N.md по разделам (номера
+               разделов сохранены); setup/steps — шаги нового проекта,
                setup/templates — шаблоны документов (в том числе
                docs/orders/ledger.md, README.md и README.ru.md) и скрипты
                проекта (tools/roadmap_check.py, look_sheet.py, refs_check.py,
@@ -548,6 +553,14 @@ plugins/studio/
                selftest.py, ops_selftest.py
   tools/       env_check.ps1 — проверка компьютера для /setup (не копируется)
 ```
+
+Большие протоколы разбиты на главы по этапам не ради красоты: после
+авто-сжатия контекста Claude Code оставляет от каждого скилла только первые
+5 000 токенов, а SKILL.md рекомендует держать до 500 строк. Короткий файл с
+таблицей глав переживает сжатие целиком, и чат перечитывает главу текущего
+этапа; субагент получает в системный промт только вход, запреты и формат
+итога, а главу `[вид]` открывает лишь на пункте про вид. `CLAUDE.md` проекта
+субагенты не перечитывают — Claude Code отдаёт его им сам.
 
 Нужно на машине: Python в `PATH` (хуки, скрипты); для листов сравнения и
 проверки картинок заказов — Pillow (`python -m pip install pillow`; `/setup`
