@@ -35,6 +35,8 @@ TOOLS = os.path.join(HERE, "..", "skills", "setup", "templates", "tools")
 ROADMAP_CHECK = os.path.join(TOOLS, "roadmap_check.py")
 CODE_CHECK = os.path.join(TOOLS, "code_check.py")
 LOOK_SHEET = os.path.join(TOOLS, "look_sheet.py")
+GATE_CHECK = os.path.join(TOOLS, "gate_check.py")
+NL, TAB = "\n".encode().decode("unicode_escape"), "\t".encode().decode("unicode_escape")
 REFS_CHECK = os.path.join(TOOLS, "refs_check.py")
 MODEL_CHECK = os.path.join(TOOLS, "model_check.py")
 
@@ -998,8 +1000,55 @@ GROUPS = (("хуки работают", "хуки НЕ работают", lambda
           ("проверка кода", "проверка кода НЕ работает", lambda r: r[0] in ("code_check", "паритет очереди")),
           ("проверка кадров", "проверка кадров НЕ работает", lambda r: r[0] == "look_sheet"),
           ("проверка образцов", "проверка образцов НЕ работает", lambda r: r[0] == "refs_check"),
-          ("проверка моделей", "проверка моделей НЕ работает", lambda r: r[0] == "model_check"))
+          ("проверка моделей", "проверка моделей НЕ работает", lambda r: r[0] == "model_check"),
+          ("проверка ворот", "проверка ворот НЕ работает", lambda r: r[0] == "gate_check"))
 
+
+def check_gate(results, tmp):
+    """gate_check: правки проверок и эталонов перечислены по имени с пометками, код — нет."""
+    root = os.path.join(tmp, "ворота проекта")
+    test_old = "func test_jump() -> void:" + NL + TAB + "assert(jump(1) == 2)" + NL + TAB + "assert(jump(2) == 3)" + NL
+    test_new = "func test_jump() -> void:" + NL + TAB + "assert(jump(1) == 2)" + NL
+    write(os.path.join(root, "tests", "jump_test.gd"), test_old)
+    write(os.path.join(root, "src", "jump.gd"), "func jump(x: int) -> int:" + NL + TAB + "return x + 1" + NL)
+    write(os.path.join(root, "tools", "check_plan.json"), '{"checks": [], "default_timeout_s": 600}' + NL)
+    write(os.path.join(root, "docs", "refs", "sky", "accepted-1.png"), "png1")
+
+    def g(*args):
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, timeout=60)
+    g("init", "-q"); g("config", "user.email", "s@t"); g("config", "user.name", "s"); g("config", "core.autocrlf", "false")
+    g("add", "."); g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD").stdout.decode().strip()
+
+    def run_gate(*args):
+        p = subprocess.run([sys.executable, "-X", "utf8", GATE_CHECK, "--root", root, *args],
+                           capture_output=True, timeout=60)
+        return p.returncode, p.stdout.decode("utf-8", "replace")
+    code, out = run_gate()
+    last = out.strip().splitlines()[-1][:60] if out.strip() else f"код {code}"
+    results.append(("gate_check", "чистое дерево", "ворот нет", last, code == 0 and "ворот нет" in out))
+    write(os.path.join(root, "tests", "jump_test.gd"), test_new)
+    write(os.path.join(root, "src", "jump.gd"), "func jump(x: int) -> int:" + NL + TAB + "return x + 2" + NL)
+    write(os.path.join(root, "tools", "check_plan.json"), '{"checks": [], "default_timeout_s": 1200}' + NL)
+    write(os.path.join(root, "docs", "refs", "sky", "accepted-1.png"), "png2")
+    write(os.path.join(root, "tests", "new_test.gd"), "func test_new() -> void:" + NL + TAB + "pass" + NL)
+    code, out = run_gate()
+    lines = [l for l in out.splitlines() if l.startswith("ворота:")]
+    names = " ".join(lines)
+    ok = (code == 0 and "tests/jump_test.gd" in names and "снято утверждение" in names
+          and "tools/check_plan.json" in names and "предел времени" in names
+          and "accepted-1.png" in names and "эталон" in names
+          and "tests/new_test.gd" in names and "новый файл" in names
+          and "src/jump.gd" not in names and "Итог: ворот 4" in out)
+    results.append(("gate_check", "тест, план, эталон, новый тест; код — нет", "4 ворот с пометками",
+                    f"код {code}, строк {len(lines)}" + ("" if ok else ": " + " | ".join(lines)[:300]), ok))
+    g("add", "."); g("commit", "-q", "-m", "Item 1: jump")
+    code, out = run_gate("--changed", base)
+    last = out.strip().splitlines()[-1][:50] if out.strip() else ""
+    results.append(("gate_check", "--changed <хеш> после коммита", "те же 4", f"код {code}: {last}",
+                    code == 0 and "Итог: ворот 4" in out))
+    code, out = run_gate("--changed", "нет-такого")
+    results.append(("gate_check", "неверный хеш", "код 2", f"код {code}", code == 2))
 
 def verdict(results, quick=False):
     """Таблица и строка «Итог:» по группам; код 1 — хоть одна группа неверна."""
@@ -1049,6 +1098,7 @@ def main():
         check_refs(results, tmp)
         check_sanity(results, tmp)
         check_model(results, tmp)
+        check_gate(results, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return verdict(results, quick)

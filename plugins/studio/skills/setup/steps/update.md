@@ -108,7 +108,8 @@
    `tools/look_sheet.py`, `tools/blind_pair.py` и `docs/refs/TECHNIQUES.md`
    («Свои приёмы» — отдельный файл рядом с библиотекой плагина, слияния
    нет; если мир судят глазом), `tools/studio_ops.py`, `tools/run_check.py`,
-   `tools/slot_pool.py`, `tools/batch_check.py`, `tools/ops_report.py` и
+   `tools/slot_pool.py`, `tools/batch_check.py`, `tools/ops_report.py`,
+   `tools/gate_check.py` и
    `tools/check_plan.json` (план — заполнить из таблицы «Команды проверки»
    по `testing.md`, «План проверок и пул слотов»; вопрос о промежуточных
    сборках — в окно п. 3; в `docs/TESTING.md` вставить раздел «Режимы и
